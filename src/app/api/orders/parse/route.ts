@@ -1,0 +1,118 @@
+import { NextResponse } from "next/server";
+import { createOrder, getProducts } from "@/lib/db";
+import { parseOrderFromText, type ParsedOrder, type ParsedOrderItem } from "@/lib/order-parser";
+
+/**
+ * POST /api/orders/parse
+ *   body options:
+ *     (a) { parsed: ParsedOrder, finalItems: [{...productId, qty, unitPrice}] }
+ *     (b) { text: string }            ← server parses then creates
+ *
+ * Returns:
+ *   201: { ok: true, order, parsed }  on success
+ *   400: { ok: false, error, parsed? } validation failure (parsed returned if available)
+ *
+ * Always lands in /orders/approval with source="manual" + status="pending-approval".
+ */
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    let parsed: ParsedOrder | null = body.parsed || null;
+    let finalItems:
+      | Array<{ productId?: number | null; matchedProductId?: number | null; quantity?: number; unitPrice?: number | null }>
+      | null = body.finalItems || null;
+
+    // If client sent raw text, parse server-side.
+    if (!parsed && typeof body.text === "string" && body.text.trim()) {
+      const products = getProducts().map((p) => ({
+        id: p.id,
+        name: p.name,
+        nameBn: p.nameBn,
+        sku: p.sku,
+        sellPrice: p.sellPrice,
+        unit: p.unit,
+      }));
+      parsed = parseOrderFromText({ text: body.text, products });
+    }
+
+    if (!parsed) {
+      return NextResponse.json({ ok: false, error: "Missing parsed order" }, { status: 400 });
+    }
+    if (!parsed.customerName || !parsed.customerName.trim()) {
+      return NextResponse.json({ ok: false, error: "Customer name required", parsed }, { status: 400 });
+    }
+    if (!parsed.customerPhone || !parsed.customerPhone.trim()) {
+      return NextResponse.json({ ok: false, error: "Phone required", parsed }, { status: 400 });
+    }
+
+    // Filter out empty / qty-zero items. Accept either `productId` or
+    // `matchedProductId` so client mistakes don't silently drop rows.
+    type _ParsedInput = {
+      productId?: number | null;
+      matchedProductId?: number | null;
+      quantity?: number;
+      unitPrice?: number | null;
+    };
+    const itemsInput: _ParsedInput[] =
+      finalItems ||
+      parsed.items.map((it: ParsedOrderItem) => ({
+        productId: it.matchedProductId,
+        matchedProductId: it.matchedProductId,
+        quantity: it.quantity,
+        unitPrice: it.unitPrice,
+      }));
+    const cleanItems = itemsInput
+      .filter((it) => {
+        if (!it) return false;
+        const pid = it.productId ?? it.matchedProductId;
+        const qty = Number(it.quantity ?? 0);
+        return pid && qty > 0;
+      })
+      .map((it) => ({
+        productId: Number(it.productId ?? it.matchedProductId),
+        qty: Number(it.quantity ?? 0),
+        unitPrice: Number(it.unitPrice ?? 0),
+      }));
+    if (cleanItems.length === 0) {
+      return NextResponse.json(
+        { ok: false, error: "At least one item with productId + qty required", parsed },
+        { status: 400 }
+      );
+    }
+
+    const insideDhaka = parsed.shippingMode === "inside_dhaka";
+    const deliveryFee =
+      parsed.shippingMode === ""
+        ? 0
+        : insideDhaka
+        ? 100
+        : 150;
+
+    const result = createOrder({
+      date: new Date().toISOString().slice(0, 10),
+      customerId: null,
+      customerName: parsed.customerName.trim(),
+      customerPhone: parsed.customerPhone.trim(),
+      area: parsed.area || "",
+      address: parsed.address || "",
+      items: cleanItems,
+      deliveryFee,
+      discount: 0,
+      paid: 0,
+      paymentMethod: parsed.paymentMethod || "cod",
+      source: "manual",
+      deliveryMode: "own",
+      note: parsed.note || "",
+      wpOrderId: "",
+      skipStockDeduction: true,
+      initialStatus: "pending-approval",
+    });
+    return NextResponse.json(
+      { ok: true, order: result.order, parsed: { ...parsed, items: cleanItems } },
+      { status: 201 }
+    );
+  } catch (e) {
+    console.error("[orders/parse] error:", e);
+    return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
+  }
+}

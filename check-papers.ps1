@@ -1,0 +1,1 @@
+Get-CimInstance Win32_Printer -Property DeviceID,Name,PrinterPaperNames -Filter "Name='Xprinter XP-350BM'" | Select-Object Name, PrinterPaperNames | Format-List
