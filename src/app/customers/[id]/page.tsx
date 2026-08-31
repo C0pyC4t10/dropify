@@ -3,8 +3,20 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Save, User, Phone, MapPin, AlertTriangle, Trash2 } from "lucide-react";
-import { formatMoney, DHAKA_AREAS_FLAT } from "@/lib/ui";
+import {
+  ArrowLeft,
+  Save,
+  User,
+  MapPin,
+  AlertTriangle,
+  Trash2,
+  ShoppingBag,
+  XCircle,
+  CheckCircle2,
+  Clock,
+  Package,
+} from "lucide-react";
+import { formatDate, formatMoney, DHAKA_AREAS_FLAT } from "@/lib/ui";
 import { isLikelyBdMobile, normalizePhone } from "@/lib/phone";
 
 interface FormState {
@@ -14,6 +26,31 @@ interface FormState {
   customArea: string;
   address: string;
   notes: string;
+}
+
+interface CustomerOrderItem {
+  productId?: number;
+  name: string;
+  nameBn?: string;
+  unit: string;
+  qty: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
+interface CustomerOrder {
+  id: number;
+  orderNo: string;
+  date: string;
+  customerPhone: string;
+  customerName: string;
+  status: string;
+  items: CustomerOrderItem[];
+  subtotal: number;
+  deliveryFee: number;
+  discount: number;
+  total: number;
+  createdAt: string;
 }
 
 export default function EditCustomerPage({ params }: { params: Promise<{ id: string }> }) {
@@ -30,7 +67,14 @@ export default function EditCustomerPage({ params }: { params: Promise<{ id: str
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [stats, setStats] = useState<{ orders: number; spend: number }>({ orders: 0, spend: 0 });
+  const [stats, setStats] = useState<{
+    orders: number;
+    delivered: number;
+    cancelled: number;
+    inProgress: number;
+    spend: number;
+  }>({ orders: 0, delivered: 0, cancelled: 0, inProgress: 0, spend: 0 });
+  const [orders, setOrders] = useState<CustomerOrder[]>([]);
   const [id, setId] = useState<number | null>(null);
 
   useEffect(() => {
@@ -74,25 +118,37 @@ export default function EditCustomerPage({ params }: { params: Promise<{ id: str
   useEffect(() => {
     if (id === null) return;
     (async () => {
-      const all = await fetch("/api/orders").then((r) => r.json());
+      const all = (await fetch("/api/orders").then((r) => r.json())) as CustomerOrder[];
       const c = await fetch("/api/customers").then((r) => r.json());
       const me = (c as Array<{ id: number; phone: string; name: string }>).find(
         (x) => x.id === id
       );
-      if (!me) return;
-      const my = (all as Array<{
-        customerPhone: string;
-        customerName: string;
-        total: number;
-        status: string;
-      }>).filter((o) => {
-        if (me.phone && o.customerPhone && o.customerPhone === me.phone) return true;
-        if (o.customerName === me.name) return true;
-        return false;
-      });
+      if (!me) {
+        setOrders([]);
+        return;
+      }
+      const my = all
+        .filter((o) => {
+          if (me.phone && o.customerPhone && o.customerPhone === me.phone) return true;
+          if (o.customerName === me.name) return true;
+          return false;
+        })
+        // Newest first so the most recent order sits at the top of the list.
+        .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
       const delivered = my.filter((o) => o.status === "delivered");
+      const cancelled = my.filter((o) => o.status === "cancelled");
+      const inProgress = my.filter(
+        (o) => o.status !== "delivered" && o.status !== "cancelled"
+      );
       const spend = delivered.reduce((s, o) => s + o.total, 0);
-      setStats({ orders: my.length, spend: Math.round(spend) });
+      setOrders(my);
+      setStats({
+        orders: my.length,
+        delivered: delivered.length,
+        cancelled: cancelled.length,
+        inProgress: inProgress.length,
+        spend: Math.round(spend),
+      });
     })();
   }, [id]);
 
@@ -221,9 +277,28 @@ export default function EditCustomerPage({ params }: { params: Promise<{ id: str
             <span>/</span>
             <span style={{ color: "var(--text-secondary)" }}>{form.name || "Edit"}</span>
           </div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Edit Customer</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>
+            Edit Customer
+            <span
+              style={{
+                marginLeft: 10,
+                padding: "2px 10px",
+                fontSize: 13,
+                fontFamily: "monospace",
+                fontWeight: 700,
+                color: "var(--accent-green)",
+                background: "rgba(77,158,71,0.10)",
+                border: "1px solid rgba(77,158,71,0.30)",
+                borderRadius: 999,
+                verticalAlign: "middle",
+              }}
+            >
+              #{id}
+            </span>
+          </h1>
           <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--text-muted)" }}>
-            #{id} — {stats.orders} orders · {formatMoney(stats.spend)} lifetime
+            {stats.orders} orders · {stats.delivered} delivered · {stats.cancelled} cancelled ·{" "}
+            {formatMoney(stats.spend)} lifetime
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -374,7 +449,12 @@ export default function EditCustomerPage({ params }: { params: Promise<{ id: str
             <Row label="Address" value={form.address.trim() || "—"} />
             {form.notes && <Row label="Notes" value={form.notes.trim() || "—"} />}
             <div style={{ height: 1, background: "var(--border)", margin: "10px 0" }} />
-            <Row label="Orders" value={String(stats.orders)} />
+            <Row label="Total Orders" value={String(stats.orders)} />
+            <Row label="Delivered" value={String(stats.delivered)} />
+            <Row label="Cancelled" value={String(stats.cancelled)} />
+            {stats.inProgress > 0 && (
+              <Row label="In Progress" value={String(stats.inProgress)} />
+            )}
             <Row label="Lifetime Spend" value={formatMoney(stats.spend)} highlight />
           </section>
           <button
@@ -404,6 +484,407 @@ export default function EditCustomerPage({ params }: { params: Promise<{ id: str
           </p>
         </aside>
       </div>
+
+      <section className="card" style={{ padding: 18, marginTop: 16 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 14,
+            paddingBottom: 12,
+            borderBottom: "1px solid var(--border)",
+            flexWrap: "wrap",
+            gap: 10,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <ShoppingBag size={16} color="var(--accent-green)" />
+            <h2
+              style={{
+                fontSize: 14,
+                fontWeight: 700,
+                margin: 0,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                color: "var(--text-secondary)",
+              }}
+            >
+              Order History
+            </h2>
+            <span
+              style={{
+                fontSize: 11,
+                padding: "2px 8px",
+                borderRadius: 999,
+                background: "var(--bg-elev, rgba(0,0,0,0.04))",
+                color: "var(--text-muted)",
+                fontWeight: 600,
+              }}
+            >
+              {stats.orders}
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <StatChip
+              icon={<CheckCircle2 size={12} />}
+              label="Delivered"
+              value={stats.delivered}
+              color="var(--accent-green)"
+              bg="rgba(77,158,71,0.10)"
+              border="rgba(77,158,71,0.30)"
+            />
+            <StatChip
+              icon={<XCircle size={12} />}
+              label="Cancelled"
+              value={stats.cancelled}
+              color="var(--accent-red)"
+              bg="rgba(226,59,46,0.10)"
+              border="rgba(226,59,46,0.30)"
+            />
+            <StatChip
+              icon={<Clock size={12} />}
+              label="In progress"
+              value={stats.inProgress}
+              color="var(--accent-amber, #f0a93b)"
+              bg="rgba(240,169,59,0.10)"
+              border="rgba(240,169,59,0.30)"
+            />
+          </div>
+        </div>
+
+        {orders.length === 0 ? (
+          <p
+            style={{
+              margin: 0,
+              padding: "20px 0",
+              textAlign: "center",
+              fontSize: 13,
+              color: "var(--text-muted)",
+            }}
+          >
+            No orders for this customer yet.
+          </p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {orders.map((o) => (
+              <OrderCard key={o.id} order={o} />
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function StatChip({
+  icon,
+  label,
+  value,
+  color,
+  bg,
+  border,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  color: string;
+  bg: string;
+  border: string;
+}) {
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "4px 10px",
+        borderRadius: 999,
+        background: bg,
+        border: `1px solid ${border}`,
+        fontSize: 12,
+        color,
+        fontWeight: 600,
+      }}
+      title={label}
+    >
+      {icon}
+      <span>{label}</span>
+      <span
+        style={{
+          fontFamily: "monospace",
+          fontSize: 12,
+          fontWeight: 700,
+          color: "var(--text-primary)",
+        }}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+const STATUS_COLORS: Record<string, { fg: string; bg: string; border: string; label: string }> = {
+  delivered:        { fg: "var(--accent-green)",     bg: "rgba(77,158,71,0.10)",  border: "rgba(77,158,71,0.30)",  label: "Delivered" },
+  cancelled:        { fg: "var(--accent-red)",       bg: "rgba(226,59,46,0.10)",  border: "rgba(226,59,46,0.30)",  label: "Cancelled" },
+  confirmed:        { fg: "var(--accent-blue, #5aa8ff)", bg: "rgba(90,168,255,0.10)", border: "rgba(90,168,255,0.30)", label: "Confirmed" },
+  preparing:        { fg: "var(--accent-amber, #f0a93b)", bg: "rgba(240,169,59,0.10)", border: "rgba(240,169,59,0.30)", label: "Preparing" },
+  "out-for-delivery": { fg: "var(--accent-amber, #f0a93b)", bg: "rgba(240,169,59,0.10)", border: "rgba(240,169,59,0.30)", label: "Out for delivery" },
+  new:              { fg: "var(--accent-blue, #5aa8ff)", bg: "rgba(90,168,255,0.10)", border: "rgba(90,168,255,0.30)", label: "New" },
+  "pending-approval": { fg: "var(--accent-amber, #f0a93b)", bg: "rgba(240,169,59,0.10)", border: "rgba(240,169,59,0.30)", label: "Pending approval" },
+};
+
+function statusStyle(status: string) {
+  return (
+    STATUS_COLORS[status] || {
+      fg: "var(--text-secondary)",
+      bg: "rgba(0,0,0,0.04)",
+      border: "var(--border)",
+      label: status || "—",
+    }
+  );
+}
+
+function OrderCard({ order }: { order: CustomerOrder }) {
+  const st = statusStyle(order.status);
+  const items = order.items || [];
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        background: "var(--bg-card, transparent)",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          padding: "10px 14px",
+          borderBottom: "1px solid var(--border)",
+          background: "var(--bg-elev, rgba(0,0,0,0.02))",
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span
+            style={{
+              fontFamily: "monospace",
+              fontSize: 13,
+              fontWeight: 700,
+              color: "var(--text-primary)",
+            }}
+          >
+            #{order.orderNo || order.id}
+          </span>
+          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            {formatDate(order.createdAt || order.date)}
+          </span>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              padding: "2px 10px",
+              borderRadius: 999,
+              background: st.bg,
+              color: st.fg,
+              border: `1px solid ${st.border}`,
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+            }}
+          >
+            {st.label}
+          </span>
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>
+          {formatMoney(order.total)}
+        </div>
+      </div>
+      {items.length === 0 ? (
+        <p style={{ margin: 0, padding: "10px 14px", fontSize: 12, color: "var(--text-muted)" }}>
+          No items recorded.
+        </p>
+      ) : (
+        <table
+          style={{
+            width: "100%",
+            borderCollapse: "collapse",
+            fontSize: 13,
+          }}
+        >
+          <thead>
+            <tr style={{ background: "var(--bg-elev, rgba(0,0,0,0.02))" }}>
+              <th
+                style={{
+                  textAlign: "left",
+                  padding: "8px 14px",
+                  fontSize: 11,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  color: "var(--text-muted)",
+                  fontWeight: 600,
+                }}
+              >
+                Item
+              </th>
+              <th
+                style={{
+                  textAlign: "right",
+                  padding: "8px 14px",
+                  fontSize: 11,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  color: "var(--text-muted)",
+                  fontWeight: 600,
+                  width: 80,
+                }}
+              >
+                Qty
+              </th>
+              <th
+                style={{
+                  textAlign: "right",
+                  padding: "8px 14px",
+                  fontSize: 11,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  color: "var(--text-muted)",
+                  fontWeight: 600,
+                  width: 110,
+                }}
+              >
+                Unit Price
+              </th>
+              <th
+                style={{
+                  textAlign: "right",
+                  padding: "8px 14px",
+                  fontSize: 11,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  color: "var(--text-muted)",
+                  fontWeight: 600,
+                  width: 110,
+                }}
+              >
+                Total
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((it, idx) => (
+              <tr
+                key={`${order.id}-${idx}`}
+                style={{ borderTop: idx === 0 ? "none" : "1px solid var(--border)" }}
+              >
+                <td style={{ padding: "8px 14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <Package size={13} color="var(--text-muted)" />
+                    <span>{it.name || "—"}</span>
+                  </div>
+                </td>
+                <td style={{ padding: "8px 14px", textAlign: "right", fontFamily: "monospace" }}>
+                  {it.qty} {it.unit || ""}
+                </td>
+                <td style={{ padding: "8px 14px", textAlign: "right", fontFamily: "monospace" }}>
+                  {formatMoney(it.unitPrice)}
+                </td>
+                <td
+                  style={{
+                    padding: "8px 14px",
+                    textAlign: "right",
+                    fontFamily: "monospace",
+                    fontWeight: 600,
+                  }}
+                >
+                  {formatMoney(it.lineTotal)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr style={{ borderTop: "1px solid var(--border)", background: "var(--bg-elev, rgba(0,0,0,0.02))" }}>
+              <td
+                colSpan={3}
+                style={{
+                  padding: "8px 14px",
+                  textAlign: "right",
+                  fontSize: 11,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  color: "var(--text-muted)",
+                  fontWeight: 600,
+                }}
+              >
+                Subtotal
+              </td>
+              <td
+                style={{
+                  padding: "8px 14px",
+                  textAlign: "right",
+                  fontFamily: "monospace",
+                  fontWeight: 600,
+                }}
+              >
+                {formatMoney(order.subtotal)}
+              </td>
+            </tr>
+            {order.deliveryFee > 0 && (
+              <tr>
+                <td
+                  colSpan={3}
+                  style={{
+                    padding: "4px 14px",
+                    textAlign: "right",
+                    fontSize: 11,
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  Delivery
+                </td>
+                <td
+                  style={{
+                    padding: "4px 14px",
+                    textAlign: "right",
+                    fontFamily: "monospace",
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  {formatMoney(order.deliveryFee)}
+                </td>
+              </tr>
+            )}
+            {order.discount > 0 && (
+              <tr>
+                <td
+                  colSpan={3}
+                  style={{
+                    padding: "4px 14px",
+                    textAlign: "right",
+                    fontSize: 11,
+                    color: "var(--accent-red)",
+                  }}
+                >
+                  Discount
+                </td>
+                <td
+                  style={{
+                    padding: "4px 14px",
+                    textAlign: "right",
+                    fontFamily: "monospace",
+                    color: "var(--accent-red)",
+                  }}
+                >
+                  −{formatMoney(order.discount)}
+                </td>
+              </tr>
+            )}
+          </tfoot>
+        </table>
+      )}
     </div>
   );
 }

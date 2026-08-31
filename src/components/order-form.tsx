@@ -5,6 +5,7 @@ import { Plus, Trash2, X } from "lucide-react";
 import type { Customer, DeliveryMode, Order, OrderSource, Product, Settings } from "@/lib/types";
 import { formatMoney, DHAKA_AREAS_FLAT, CLUSTER_COLORS, CLUSTER_SHORT, SUB_CLUSTER_LABELS } from "@/lib/ui";
 import { getLocationForArea } from "@/lib/locations";
+import CustomerMatchBanner, { type CustomerMatch } from "./customer-match-banner";
 
 interface Props {
   products: Product[];
@@ -66,6 +67,29 @@ export function OrderForm({ products, customers, settings, onClose, onSaved, emb
       }
       setAddress(c.address);
     }
+  };
+
+  // When the dispatcher clicks "Use this customer" on the inline match banner,
+  // prefill name / phone / area / address from the matched row. We only fill
+  // empty fields so we never overwrite something the user already typed.
+  const applyMatch = (m: CustomerMatch) => {
+    setCustomerId(String(m.id));
+    if (!customerName.trim()) setCustomerName(m.name);
+    if (!customerPhone.trim()) setCustomerPhone(m.phone);
+    if (m.area) {
+      if (DHAKA_AREAS_FLAT.some((a) => a.toLowerCase() === m.area.toLowerCase())) {
+        if (!area || area === DHAKA_AREAS_FLAT[0]) {
+          setArea(m.area);
+          setCustomArea("");
+        }
+      } else {
+        if (!customArea.trim()) {
+          setArea("Other");
+          setCustomArea(m.area);
+        }
+      }
+    }
+    if (!address.trim()) setAddress(m.address || "");
   };
 
   /** Auto-detect cluster / sub-cluster from the chosen area (or custom area).
@@ -234,6 +258,7 @@ export function OrderForm({ products, customers, settings, onClose, onSaved, emb
           <div>
             <label>Phone</label>
             <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} />
+            <CustomerMatchBanner phone={customerPhone} onUse={applyMatch} />
           </div>
           <div>
             <label>Area (Dhaka Metro)</label>

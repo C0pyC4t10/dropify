@@ -183,7 +183,7 @@ export default function CustomersPage() {
                     style={{ cursor: "pointer" }}
                   />
                 </th>
-                <th style={{ width: 60 }}>ID</th>
+                <th style={{ width: 70 }}>Customer ID</th>
                 <th>Customer</th>
                 <th>Phone</th>
                 <th>Area</th>
@@ -214,7 +214,9 @@ export default function CustomersPage() {
                       style={{ cursor: "pointer" }}
                     />
                   </td>
-                  <td style={{ color: "var(--text-muted)", fontFamily: "monospace", fontSize: 12 }}>#{c.id}</td>
+                  <td style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
+                    #{c.id}
+                  </td>
                   <td>
                     <Link
                       href={`/customers/${c.id}`}

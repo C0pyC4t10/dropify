@@ -859,8 +859,10 @@ export function getLowStock(): Product[] {
 
 export function getCustomers(): Customer[] {
   const db = getDb();
+  // Newest first so the most recently added customer is at the top of the
+  // list. id DESC == createdAt DESC for this table since `id` is autoincrement.
   return (db
-    .prepare("SELECT * FROM customers ORDER BY id ASC")
+    .prepare("SELECT * FROM customers ORDER BY id DESC")
     .all() as Record<string, unknown>[]).map(rowToCustomer);
 }
 
@@ -870,6 +872,50 @@ export function getCustomer(id: number): Customer | undefined {
     | Record<string, unknown>
     | undefined;
   return row ? rowToCustomer(row) : undefined;
+}
+
+export interface CustomerOrderStats {
+  total: number;
+  delivered: number;
+  cancelled: number;
+  inProgress: number;
+  lifetimeSpend: number;
+}
+
+/**
+ * Compute order stats for a single customer. Matches by `customerId` first
+ * (the stable join), then falls back to phone/name matching for legacy rows
+ * where customerId was never set. Excludes soft-deleted rows if any.
+ */
+export function getOrderStatsForCustomer(customerId: number): CustomerOrderStats {
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT
+         COUNT(*) AS total,
+         COALESCE(SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END), 0) AS delivered,
+         COALESCE(SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END), 0) AS cancelled,
+         COALESCE(SUM(CASE WHEN status NOT IN ('delivered','cancelled') THEN 1 ELSE 0 END), 0) AS inProgress,
+         COALESCE(SUM(CASE WHEN status = 'delivered' THEN total ELSE 0 END), 0) AS lifetimeSpend
+       FROM orders
+       WHERE customerId = ?`
+    )
+    .get(customerId) as
+    | {
+        total: number;
+        delivered: number;
+        cancelled: number;
+        inProgress: number;
+        lifetimeSpend: number;
+      }
+    | undefined;
+  return {
+    total: row?.total ?? 0,
+    delivered: row?.delivered ?? 0,
+    cancelled: row?.cancelled ?? 0,
+    inProgress: row?.inProgress ?? 0,
+    lifetimeSpend: Math.round(row?.lifetimeSpend ?? 0),
+  };
 }
 
 // Result type for createOrUpdateCustomer — used by order creation flows

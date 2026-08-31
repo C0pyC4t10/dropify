@@ -15,6 +15,7 @@ import {
 import type { Product, Settings } from "@/lib/types";
 import { parseOrderFromText, type ParsedOrder, type ParsedOrderItem } from "@/lib/order-parser";
 import { DHAKA_AREAS_FLAT } from "@/lib/ui";
+import CustomerMatchBanner from "./customer-match-banner";
 
 interface Props {
   products: Product[];
@@ -420,6 +421,8 @@ function ParsePreview({
           placeholder="+8801XXXXXXXXX or 01XXXXXXXXX"
         />
       </Field>
+
+      <CustomerMatchBanner phone={parsed.customerPhone} compact />
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <Field label="Area" tone={cf(c.area)}>

@@ -100,7 +100,10 @@ const BANGLA_ADDRESS_KEYWORDS = [
 ];
 
 /** A line that LOOKS LIKE a label, never an address/name. */
-const labelRe = /^(?:phone|phone\s*no\.?|মোবাইল|মোবাইল\s*নাম্বার|payment|payment\s*(?:via|method)?|shipping|shipping\s*(?:method|details)?|product|product\s*name|qty|quantity|item|items|note|notes|delivery|address\s*details|order\s*details|ঠিকানা)/i;
+const labelRe = /^(?:phone|phone\s*no\.?|মোবাইল|মোবাইল\s*নাম্বার|payment|payment\s*(?:via|method)?|shipping|shipping\s*(?:method|details)?|product|product\s*name|qty|quantity|item|items|note|notes|delivery|address\s*details|order\s*details|ঠিকানা|billing|package|completed|edit|sub\s*total|total|shipping\s*cost|tax)/i;
+
+/** A line that is just a quantity with a unit (no price). "3KG", "1 kg", "5 পিস". */
+const QTY_ONLY_RE = /^\s*\d+(?:\.\d+)?\s*(kg|কেজি|pcs|pc|পিস|piece|pieces|টুকরা)\s*$/i;
 
 function looksLikeQtyTimesPriceLine(ln: string): { qty: number; lineTotal: number; unit: "kg" | "pcs" } | null {
   // Accepts commas, tabs, spaces, "x" or "×" as qty↔price separators.
@@ -164,10 +167,21 @@ function findShipping(text: string): "inside_dhaka" | "outside_dhaka" | null {
 function findArea(text: string): string | null {
   const labelAreaMatch = text.match(/^\s*area\s*[:\-]\s*(.+)$/im);
   if (labelAreaMatch) return labelAreaMatch[1].trim();
+
+  // Case-insensitive earliest-match: pick the area keyword that appears first
+  // in the text rather than the first one in AREA_KEYWORDS that matches.
+  // Returns the canonical-case form from AREA_KEYWORDS so the dropdown shows
+  // the same spelling the form expects ("Mirpur", not "mirpur").
+  const lower = text.toLowerCase();
+  let earliest: { kw: string; pos: number } | null = null;
   for (const kw of AREA_KEYWORDS) {
-    if (text.includes(kw)) return kw;
+    const idx = lower.indexOf(kw.toLowerCase());
+    if (idx === -1) continue;
+    if (earliest === null || idx < earliest.pos) {
+      earliest = { kw, pos: idx };
+    }
   }
-  return null;
+  return earliest?.kw ?? null;
 }
 
 function findTotal(text: string): number | null {
@@ -191,12 +205,36 @@ interface RawParsedItem {
 }
 
 /**
+ * Walk backwards from `atLine` looking for the real product-name line. Skips
+ * labels ("Package:", "Completed:"…), qty-only lines ("3KG"), qty×price lines,
+ * price-only lines, and blanks. Returns the trimmed candidate or "".
+ */
+function findNameAbove(lines: string[], atLine: number): string {
+  for (let j = atLine - 1; j >= 0; j--) {
+    const prev = lines[j];
+    if (!prev) continue;
+    if (labelRe.test(prev)) continue;
+    if (looksLikeQtyTimesPriceLine(prev)) continue;
+    if (looksLikePriceLine(prev) && /^\d/.test(prev)) continue;
+    if (QTY_ONLY_RE.test(prev)) continue;
+    return prev;
+  }
+  return "";
+}
+
+/**
  * Parse items from the lines. The strategy is:
  *   1. Mark each line as either a "name" line or a "qty×price" line by looking
  *      for the qty×price pattern, the qty-only pattern ("1 কেজি"), the
  *      ৳-price-only pattern, or kg/pcs unit markers.
- *   2. Pair each qty×price line with the line just above it for the name.
- *   3. Drop duplicates.
+ *   2. If a qty-only line ("3KG") is immediately followed by a qty×price line
+ *      ("\t1\t2,685.00৳") — within 2 lines — they describe the SAME product:
+ *      the qtyOnly carries the real quantity, the qtyPrice carries the line
+ *      total. Merge them into one item so we don't double-count.
+ *   3. Pair each item with the product-name line right above it, skipping
+ *      labels and other item-shaped lines so the name lands on the real
+ *      product header (e.g. "🐐 দেশি ছাগলের মাংস - 3KG").
+ *   4. Drop duplicates by (qty, lineTotal, nameHint).
  */
 function parseItems(text: string): RawParsedItem[] {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
@@ -213,49 +251,57 @@ function parseItems(text: string): RawParsedItem[] {
       items.push({ kind: "qtyprice", qty: qp.qty, lineTotal: qp.lineTotal, unit: qp.unit, atLine: i });
       continue;
     }
-    // "1 কেজি" / "1 kg" without price
-    const m2 = ln.match(/^\s*(\d+(?:\.\d+)?)\s*(kg|কেজি|pcs|pc|পিস|piece|pieces|টুকরা)\s*$/i);
-    if (m2) {
-      const unit = /pcs|pc|পিস|piece/i.test(m2[2]) ? "pcs" : "kg";
-      items.push({ kind: "qtyOnly", qty: Number(m2[1]), unit, atLine: i });
+    if (QTY_ONLY_RE.test(ln)) {
+      const m = ln.match(/^\s*(\d+(?:\.\d+)?)\s*(kg|কেজি|pcs|pc|পিস|piece|pieces|টুকরা)\s*$/i);
+      if (m) {
+        const unit = /pcs|pc|পিস|piece/i.test(m[2]) ? "pcs" : "kg";
+        items.push({ kind: "qtyOnly", qty: Number(m[1]), unit, atLine: i });
+      }
     }
   }
 
-  // Pair each detected item with the product-name line right above it (skipping
-  // any preceding qty-only or qty-price lines that should not be a name).
+  // Step 2: merge qtyOnly+qtyprice that describe the same product.
   const result: RawParsedItem[] = [];
-  for (const it of items) {
-    if (it.kind === "qtyprice") {
-      let name = "";
-      for (let j = it.atLine - 1; j >= 0; j--) {
-        const prev = lines[j];
-        if (!prev) continue;
-        if (labelRe.test(prev)) continue;
-        // Skip another qty×price-style line going up
-        if (looksLikeQtyTimesPriceLine(prev)) continue;
-        if (looksLikePriceLine(prev) && /^\d/.test(prev)) continue;
-        // Found a candidate name line.
-        name = prev;
-        break;
+  const consumed = new Set<number>();
+  for (let i = 0; i < items.length; i++) {
+    if (consumed.has(i)) continue;
+    const it = items[i];
+
+    if (it.kind === "qtyOnly") {
+      // Look ahead for a qtyprice within 2 lines of the qtyOnly.
+      let mergeIdx = -1;
+      for (let j = i + 1; j < items.length; j++) {
+        if (consumed.has(j)) continue;
+        const other = items[j];
+        if (other.atLine - it.atLine > 2) break;
+        if (other.kind === "qtyprice") {
+          mergeIdx = j;
+          break;
+        }
       }
-      const unitPrice = Math.round((it.lineTotal / it.qty) * 100) / 100;
-      result.push({
-        qty: it.qty,
-        unit: it.unit,
-        unitPrice,
-        lineTotal: it.lineTotal,
-        nameHint: name || `Item ${it.atLine}`,
-        sourceLine: lines[it.atLine],
-      });
-    } else {
-      // qty-only: no price known — fill unitPrice from product match later.
-      let name = "";
-      for (let j = it.atLine - 1; j >= 0; j--) {
-        const prev = lines[j];
-        if (!prev || labelRe.test(prev) || looksLikeQtyTimesPriceLine(prev)) continue;
-        name = prev;
-        break;
+      if (mergeIdx >= 0) {
+        const qp = items[mergeIdx] as Extract<ItemLike, { kind: "qtyprice" }>;
+        // The qtyOnly's quantity is the real quantity (the qtyPrice's "1" is
+        // the "row index" the customer pasted, not the amount).
+        const qty = it.qty;
+        const lineTotal = qp.lineTotal;
+        const unitPrice = qty > 0 ? Math.round((lineTotal / qty) * 100) / 100 : qp.lineTotal;
+        const name = findNameAbove(lines, it.atLine);
+        result.push({
+          qty,
+          unit: it.unit,
+          unitPrice,
+          lineTotal,
+          nameHint: name || `Item ${it.atLine}`,
+          sourceLine: lines[it.atLine],
+        });
+        consumed.add(i);
+        consumed.add(mergeIdx);
+        continue;
       }
+      // No qtyprice follows within 2 lines — emit qtyOnly as-is (price will be
+      // filled from the catalog by the caller).
+      const name = findNameAbove(lines, it.atLine);
       result.push({
         qty: it.qty,
         unit: it.unit,
@@ -264,13 +310,30 @@ function parseItems(text: string): RawParsedItem[] {
         nameHint: name || `Item ${it.atLine}`,
         sourceLine: lines[it.atLine],
       });
+      consumed.add(i);
+      continue;
     }
+
+    // Plain qtyprice with no preceding qtyOnly.
+    const name = findNameAbove(lines, it.atLine);
+    const unitPrice = Math.round((it.lineTotal / it.qty) * 100) / 100;
+    result.push({
+      qty: it.qty,
+      unit: it.unit,
+      unitPrice,
+      lineTotal: it.lineTotal,
+      nameHint: name || `Item ${it.atLine}`,
+      sourceLine: lines[it.atLine],
+    });
+    consumed.add(i);
   }
 
-  // De-dupe by (qty, unitPrice, nameHint, lineTotal).
+  // De-dupe by (qty, lineTotal, nameHint). Drop unitPrice from the key — it's
+  // derived from the other two and a rounding difference would otherwise let
+  // duplicates through.
   const seen = new Set<string>();
   return result.filter((it) => {
-    const key = `${it.qty}|${it.unitPrice}|${it.lineTotal}|${it.nameHint}`;
+    const key = `${it.qty}|${it.lineTotal}|${it.nameHint}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
