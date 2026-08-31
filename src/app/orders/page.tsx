@@ -336,7 +336,8 @@ export default function OrdersPage() {
             onClick={() =>
               void downloadPrepListPDF(
                 aggregateOrdersBySku(exportRows),
-                settings?.businessName || "Bazarey Meat Delivery"
+                settings?.businessName || "Bazarey Meat Delivery",
+                exportRows.length
               )
             }
             disabled={!filtered || filtered.length === 0}
@@ -530,16 +531,46 @@ export default function OrdersPage() {
         </div>
       )}
 
+      {selectedIds.size === 0 && filtered.length > 0 && (
+        <div
+          style={{
+            fontSize: 12,
+            color: "var(--text-muted)",
+            marginBottom: 8,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <Check size={13} />
+          Tip: check rows to enable bulk actions (confirm, mark delivered, print, cancel).
+        </div>
+      )}
+
       <div className="card" style={{ overflow: "hidden" }}>
         <div style={{ overflowX: "auto" }}>
           <table className="table">
             <thead>
               <tr>
-                <th style={{ width: 36 }}>
+                <th
+                  style={{
+                    width: 64,
+                    textAlign: "center",
+                    position: "sticky",
+                    left: 0,
+                    zIndex: 2,
+                    background: "var(--bg-card)",
+                  }}
+                  title="Select rows for bulk actions"
+                >
+                  <div style={{ fontSize: 9, lineHeight: 1, marginBottom: 4, color: "var(--text-secondary)" }}>
+                    SELECT
+                  </div>
                   <input
                     type="checkbox"
                     checked={allSelected}
                     onChange={toggleSelectAll}
+                    aria-label="Select all orders"
                     title="Select all"
                   />
                 </th>
@@ -576,11 +607,23 @@ export default function OrdersPage() {
                     background: selectedIds.has(o.id) ? "rgba(77,158,71,0.10)" : undefined,
                   }}
                 >
-                  <td onClick={(e) => e.stopPropagation()}>
+                  <td
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      position: "sticky",
+                      left: 0,
+                      zIndex: 1,
+                      textAlign: "center",
+                      background: selectedIds.has(o.id)
+                        ? "rgba(77,158,71,0.10)"
+                        : "var(--bg-card)",
+                    }}
+                  >
                     <input
                       type="checkbox"
                       checked={selectedIds.has(o.id)}
                       onChange={() => toggleSelect(o.id)}
+                      aria-label={`Select order ${o.orderNo}`}
                     />
                   </td>
                   <td style={{ color: "var(--accent-green)", fontWeight: 600 }}><a href={`/orders/${o.id}`} style={{ color: "inherit", textDecoration: "none" }}>{o.orderNo}</a></td>
@@ -766,7 +809,8 @@ export default function OrdersPage() {
                   e.stopPropagation();
                   void downloadPrepListPDF(
                     aggRows,
-                    settings?.businessName || "Bazarey Meat Delivery"
+                    settings?.businessName || "Bazarey Meat Delivery",
+                    exportRows.length
                   );
                 }}
               >

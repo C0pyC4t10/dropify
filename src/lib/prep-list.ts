@@ -9,8 +9,17 @@ import { openPrintDocument } from "./print-html";
  *
  * Opens a print-ready window with proper Bengali shaping via the OS font
  * shaper. The user picks "Save as PDF" in the print dialog.
+ *
+ * `selectedOrderCount` is the number of orders actually in scope (e.g. user
+ * ticked 3 rows). The per-row `# Orders` column may add up to more than this
+ * if a SKU is in multiple orders — that's expected and informative — but the
+ * footer reports the scope honestly as "across N orders".
  */
-export function downloadPrepListPDF(rows: AggregateSkuRow[], brandLabel = "Bazarey Meat Delivery"): void {
+export function downloadPrepListPDF(
+  rows: AggregateSkuRow[],
+  brandLabel = "Bazarey Meat Delivery",
+  selectedOrderCount?: number
+): void {
   const totalsKg = rows.reduce((s, r) => s + r.totalKg, 0);
   const totalsPcs = rows.reduce((s, r) => s + r.totalPcs, 0);
   const stamp = new Date().toLocaleString("en-GB", {
@@ -50,10 +59,10 @@ export function downloadPrepListPDF(rows: AggregateSkuRow[], brandLabel = "Bazar
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="2">Totals</td>
+            <td colspan="2">Totals${selectedOrderCount ? ` · ${selectedOrderCount} order${selectedOrderCount === 1 ? "" : "s"}` : ""}</td>
             <td class="num">${fmtQty(totalsKg, "kg")}</td>
             <td class="num">${fmtQty(totalsPcs, "pcs")}</td>
-            <td class="num">${rows.reduce((s, r) => s + r.orderCount, 0)}</td>
+            <td class="num">${rows.reduce((s, r) => s + Math.min(r.orderCount, selectedOrderCount ?? r.orderCount), 0)}</td>
           </tr>
         </tfoot>
       </table>`;

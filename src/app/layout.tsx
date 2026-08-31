@@ -24,7 +24,7 @@ export default function RootLayout({
         <Script id="theme-bootstrap" strategy="beforeInteractive">{themeBootstrap}</Script>
         <ThemeProvider>
           <Header className="no-print permanent-header" />
-          <main className="main-content" style={{ maxWidth: "1200px", margin: "0 auto", padding: "16px", paddingTop: 60 }}>
+          <main className="main-content" style={{ maxWidth: "100%", margin: 0, padding: "16px 20px", paddingTop: 60 }}>
             {children}
           </main>
           <Footer className="no-print" />

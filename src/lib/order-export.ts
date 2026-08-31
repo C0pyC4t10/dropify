@@ -98,7 +98,8 @@ export function flattenOrdersToRows(orders: Order[]): OrderLineRow[] {
  * truncated by sparse early data.
  */
 export function aggregateOrdersBySku(orders: Order[]): AggregateSkuRow[] {
-  const bucket = new Map<string, AggregateSkuRow>();
+  type RowWithOrders = AggregateSkuRow & { _orderIds: Set<number> };
+  const bucket = new Map<string, RowWithOrders>();
   for (const o of orders) {
     if (o.status === "cancelled") continue;
     for (const it of o.items || []) {
@@ -112,7 +113,13 @@ export function aggregateOrdersBySku(orders: Order[]): AggregateSkuRow[] {
         if (it.unit === "kg") existing.totalKg += Number(it.qty) || 0;
         else if (it.unit === "pcs") existing.totalPcs += Number(it.qty) || 0;
         existing.lineTotal += lineTotal;
-        existing.orderCount += 1;
+        // Count distinct orders, not line-item hits. A SKU that appears twice
+        // in one order (parser duplicates) or in multiple orders should only
+        // bump orderCount once per order.
+        if (!existing._orderIds.has(o.id)) {
+          existing._orderIds.add(o.id);
+          existing.orderCount += 1;
+        }
         // Prefer the longest name strings — early data may have empty fields.
         if (en.length > existing.productName.length) existing.productName = en;
         if (bn.length > existing.productNameBn.length) existing.productNameBn = bn;
@@ -129,13 +136,30 @@ export function aggregateOrdersBySku(orders: Order[]): AggregateSkuRow[] {
           orderCount: 1,
           firstDate: o.date,
           lastDate: o.date,
+          _orderIds: new Set([o.id]),
         });
       }
     }
   }
-  return Array.from(bucket.values()).sort((a, b) => {
-    const aName = a.productName || a.productNameBn;
-    const bName = b.productName || b.productNameBn;
-    return aName.localeCompare(bName);
-  });
+  return Array.from(bucket.values())
+    .map((row): AggregateSkuRow => {
+      const r: AggregateSkuRow = {
+        sku: row.sku,
+        productName: row.productName,
+        productNameBn: row.productNameBn,
+        totalKg: row.totalKg,
+        totalPcs: row.totalPcs,
+        lineTotal: row.lineTotal,
+        orderCount: row.orderCount,
+        firstDate: row.firstDate,
+        lastDate: row.lastDate,
+      };
+      void row._orderIds;
+      return r;
+    })
+    .sort((a, b) => {
+      const aName = a.productName || a.productNameBn;
+      const bName = b.productName || b.productNameBn;
+      return aName.localeCompare(bName);
+    });
 }
