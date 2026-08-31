@@ -2489,5 +2489,5 @@ export function setPurchaseOrderStatus(
   db.prepare(
     `UPDATE purchase_orders SET status=?, receivedDate=?, updatedAt=? WHERE id=?`
   ).run(status, status === "cancelled" ? "" : receivedDate, now, id);
-  return getPurchaseOrder(id);
+  return getPurchaseOrder(id) ?? null;
 }

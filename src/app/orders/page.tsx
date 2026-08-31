@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { Suspense, useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, Search, Printer, Check, X, Trash2, Truck, Inbox, FileSpreadsheet, FileText, Map, Bike, Compass } from "lucide-react";
@@ -25,6 +25,16 @@ const FILTERS: Array<OrderStatus | "all"> = [
 ];
 
 export default function OrdersPage() {
+  // Next.js 16 requires useSearchParams() to live inside a Suspense boundary
+  // so the page can be prerendered without bailing out at build time.
+  return (
+    <Suspense fallback={<div style={{ textAlign: "center", padding: "60px 0", color: "var(--text-muted)" }}>Loading…</div>}>
+      <OrdersPageContent />
+    </Suspense>
+  );
+}
+
+function OrdersPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [orders, setOrders] = useState<Order[]>([]);

@@ -1,3 +1,5 @@
+import type { DeliveryPartner } from "./delivery-partners";
+
 export type ProductCategory = "beef" | "chicken" | "mutton" | "offal" | "fish";
 
 export type Unit = "kg" | "pcs";
