@@ -31,6 +31,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@tailwindcss/oxide-linux-x64-gnu": "^4.3.3",
     "@tailwindcss/postcss": "^4",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^20",
@@ -38,6 +39,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.12",
+    "lightningcss-linux-x64-gnu": "^1.33.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

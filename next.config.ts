@@ -1,7 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: [],
+  serverExternalPackages: [
+    "@tailwindcss/oxide",
+    "@tailwindcss/oxide-linux-x64-gnu",
+    "lightningcss",
+  ],
   experimental: {
     serverActions: {
       bodySizeLimit: "5mb",
