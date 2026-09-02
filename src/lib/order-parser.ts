@@ -1,5 +1,5 @@
 import { normalizePhone } from "./phone";
-import type { PaymentMethod } from "./types";
+import type { OrderSource, PaymentMethod } from "./types";
 
 /**
  * Output of the heuristic order-text parser. All fields are inferred; the UI
@@ -16,6 +16,8 @@ export interface ParsedOrder {
   items: ParsedOrderItem[];
   note: string;
   totalHint: number | null; // raw total found in text (e.g. "৳1,790.00")
+  /** Inferred order source channel (facebook/whatsapp/phone/etc.). UI may override. */
+  source: OrderSource;
   /** Sum of items×qty + delivery, computed from item list — used for cross-check. */
   computedTotal: number;
   /** Confidence per field: 0..1. Below 0.5 → flag for review. */
@@ -30,7 +32,8 @@ export type ParsedField =
   | "paymentMethod"
   | "shippingMode"
   | "items"
-  | "totalHint";
+  | "totalHint"
+  | "source";
 
 export interface ParsedOrderItem {
   /** Best-guess product name from the message line. May include emoji. */
@@ -164,6 +167,53 @@ function findShipping(text: string): "inside_dhaka" | "outside_dhaka" | null {
   return null;
 }
 
+/**
+ * Heuristically guess the order source channel from the pasted text.
+ * Returns null when no signal matches (UI keeps the previous default).
+ *
+ * Priority order matches what real Facebook/WhatsApp pastes look like:
+ *   1. WhatsApp signals (chat headers, message bubble markers)
+ *   2. Facebook signals (FB Messenger headers, marketplace format)
+ *   3. Phone call transcript markers (operator-typed shorthand)
+ *   4. SMS / call text indicators
+ *
+ * Note: "manual" is intentionally NOT auto-set — it's the fallback when no
+ * channel signal is found, and the UI shows "Manual" as the default option.
+ */
+function findSource(text: string): OrderSource | null {
+  const lower = text.toLowerCase();
+
+  // WhatsApp — strong signals are the words "whatsapp"/"WhatsApp" + emoji
+  // (📱, ✅), or the literal "via WhatsApp" that copy-pastes from a chat
+  // header, or Bangla transliterations ("হোয়াটসঅ্যাপ", "ভাটসআপ").
+  if (/(?:via\s+)?whatsapp|whats\s*app|হোয়াটস/iu.test(lower)) return "whatsapp";
+
+  // Facebook — FB Messenger pastes contain "via Facebook", "messenger.com",
+  // marketplace order format ("Order #", "From Facebook Page") or the
+  // Bangla "ফেসবুক"/"মেসেঞ্জার".
+  if (
+    /(?:via\s+)?facebook|fb\s*messenger|messenger\.com|ফেসবুক|ফেইসবুক|মেসেঞ্জার|মেসেনজার/iu.test(
+      lower
+    )
+  )
+    return "facebook";
+
+  // Phone call — operator types a phone order, often marked with a phone
+  // emoji (📞/☎) or words "phone order"/"call order"/"ফোন অর্ডার"/"কল".
+  if (
+    /(?:📞|☎|☎️)|phone\s*order|call\s*order|ফোন\s*অর্ডার|ফোনে|কল\s*অর্ডার/iu.test(
+      lower
+    )
+  )
+    return "phone";
+
+  // SMS — short paste with an SMS-style prefix ("SMS:", "[SMS]") or Bangla
+  // "এসএমএস".
+  if (/^\s*(?:\[\s*sms\s*\]|sms\s*[:\-]|এসএমএস)/iu.test(lower)) return "phone";
+
+  return null;
+}
+
 function findArea(text: string): string | null {
   const labelAreaMatch = text.match(/^\s*area\s*[:\-]\s*(.+)$/im);
   if (labelAreaMatch) return labelAreaMatch[1].trim();
@@ -205,9 +255,21 @@ interface RawParsedItem {
 }
 
 /**
+ * A "noise" line that should be skipped when searching for the product name
+ * above a qty/qty×price line. Examples from real Facebook/WhatsApp order
+ * pastes: "M10k", "SKU001", "A2", "X1". These are short ASCII-only tokens
+ * with mixed letters+digits (or just one) that aren't a real product name.
+ *
+ * Bangla product headers like "🐐 দেশি ছাগলের মাংস" are always longer than
+ * 8 chars and contain non-ASCII characters, so they never trip this.
+ */
+const SHORT_CODE_RE = /^[A-Za-z0-9]{1,8}$/;
+
+/**
  * Walk backwards from `atLine` looking for the real product-name line. Skips
  * labels ("Package:", "Completed:"…), qty-only lines ("3KG"), qty×price lines,
- * price-only lines, and blanks. Returns the trimmed candidate or "".
+ * price-only lines, short SKU/code tokens ("M10k"), and blanks. Returns the
+ * trimmed candidate or "".
  */
 function findNameAbove(lines: string[], atLine: number): string {
   for (let j = atLine - 1; j >= 0; j--) {
@@ -217,6 +279,7 @@ function findNameAbove(lines: string[], atLine: number): string {
     if (looksLikeQtyTimesPriceLine(prev)) continue;
     if (looksLikePriceLine(prev) && /^\d/.test(prev)) continue;
     if (QTY_ONLY_RE.test(prev)) continue;
+    if (SHORT_CODE_RE.test(prev.trim())) continue;
     return prev;
   }
   return "";
@@ -525,6 +588,7 @@ export function parseOrderFromText(input: ParseInput): ParsedOrder {
     items: [],
     note: "",
     totalHint: null,
+    source: "manual",
     computedTotal: 0,
     confidence: {
       customerName: 0,
@@ -535,6 +599,7 @@ export function parseOrderFromText(input: ParseInput): ParsedOrder {
       shippingMode: 0,
       items: 0,
       totalHint: 0,
+      source: 0,
     },
   };
 
@@ -574,6 +639,15 @@ export function parseOrderFromText(input: ParseInput): ParsedOrder {
   if (shipping) {
     result.shippingMode = shipping;
     result.confidence.shippingMode = 0.92;
+  }
+
+  // ── 5b. Source — best-effort auto-detect; UI lets them override.
+  const source = findSource(text);
+  if (source) {
+    result.source = source;
+    result.confidence.source = 0.78;
+  } else {
+    result.confidence.source = 0.2;
   }
 
   // ── 6. Items + total hint

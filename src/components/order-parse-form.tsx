@@ -12,7 +12,7 @@ import {
   Trash2,
   Plus,
 } from "lucide-react";
-import type { Product, Settings } from "@/lib/types";
+import type { Product, Settings, OrderSource } from "@/lib/types";
 import { parseOrderFromText, type ParsedOrder, type ParsedOrderItem } from "@/lib/order-parser";
 import { DHAKA_AREAS_FLAT } from "@/lib/ui";
 import CustomerMatchBanner from "./customer-match-banner";
@@ -426,20 +426,70 @@ function ParsePreview({
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <Field label="Area" tone={cf(c.area)}>
-          <select
-            className="qp-input"
-            value={parsed.area}
-            onChange={(e) => onPatch({ area: e.target.value })}
-            disabled={disabled}
-          >
-            <option value="">— pick —</option>
-            {DHAKA_AREAS_FLAT.map((a) => (
-              <option key={a} value={a}>
-                {a}
-              </option>
-            ))}
-            <option value="Other">Other (type custom)…</option>
-          </select>
+          {/*
+            Custom-area mode is detected in two ways:
+              (1) the select is currently set to "Other" sentinel
+              (2) parsed.area holds a value that's not in DHAKA_AREAS_FLAT
+                  (e.g. text-parsed, or operator typed a custom name earlier)
+            In both cases we render the text input and treat the user's
+            typed value as the canonical parsed.area.
+          */}
+          {(() => {
+            const isCustomMode =
+              parsed.area === "Other" ||
+              (parsed.area !== "" && !DHAKA_AREAS_FLAT.includes(parsed.area));
+            if (isCustomMode) {
+              return (
+                <>
+                  <select
+                    className="qp-input"
+                    value="Other"
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      // Picked a known area → drop custom mode and use it
+                      if (v !== "Other") onPatch({ area: v });
+                      // Re-picked "Other" → clear so the placeholder shows
+                      else onPatch({ area: "" });
+                    }}
+                    disabled={disabled}
+                  >
+                    <option value="">— pick —</option>
+                    {DHAKA_AREAS_FLAT.map((a) => (
+                      <option key={a} value={a}>
+                        {a}
+                      </option>
+                    ))}
+                    <option value="Other">Other (type custom)…</option>
+                  </select>
+                  <input
+                    className="qp-input"
+                    value={parsed.area === "Other" ? "" : parsed.area}
+                    onChange={(e) => onPatch({ area: e.target.value })}
+                    disabled={disabled}
+                    placeholder="Type area name"
+                    style={{ marginTop: 6 }}
+                    autoFocus
+                  />
+                </>
+              );
+            }
+            return (
+              <select
+                className="qp-input"
+                value={parsed.area}
+                onChange={(e) => onPatch({ area: e.target.value })}
+                disabled={disabled}
+              >
+                <option value="">— pick —</option>
+                {DHAKA_AREAS_FLAT.map((a) => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+                <option value="Other">Other (type custom)…</option>
+              </select>
+            );
+          })()}
         </Field>
         <Field label="Shipping method" tone={cf(c.shippingMode)}>
           <select
@@ -599,6 +649,30 @@ function ParsePreview({
           </select>
         </Field>
       </div>
+      <Field
+        label={
+          c.source >= 0.7
+            ? `Order Source · auto-detected`
+            : "Order Source"
+        }
+        tone={cf(c.source)}
+      >
+        <select
+          className="qp-input"
+          value={parsed.source}
+          onChange={(e) =>
+            onPatch({ source: e.target.value as OrderSource })
+          }
+          disabled={disabled}
+        >
+          <option value="manual">Manual (in-store / phone)</option>
+          <option value="phone">Phone call</option>
+          <option value="facebook">Facebook (DM / Marketplace)</option>
+          <option value="whatsapp">WhatsApp</option>
+          <option value="wordpress">WordPress website</option>
+          <option value="walkin">Walk-in</option>
+        </select>
+      </Field>
       <Field label="Note">
         <textarea
           className="qp-input"

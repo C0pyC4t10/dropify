@@ -12,7 +12,8 @@ import { parseOrderFromText, type ParsedOrder, type ParsedOrderItem } from "@/li
  *   201: { ok: true, order, parsed }  on success
  *   400: { ok: false, error, parsed? } validation failure (parsed returned if available)
  *
- * Always lands in /orders/approval with source="manual" + status="pending-approval".
+ * Always lands in /orders/approval with the operator-selected source
+ * (defaults to "manual") and status="pending-approval".
  */
 export async function POST(request: Request) {
   try {
@@ -100,7 +101,7 @@ export async function POST(request: Request) {
       discount: 0,
       paid: 0,
       paymentMethod: parsed.paymentMethod || "cod",
-      source: "manual",
+      source: parsed.source || "manual",
       deliveryMode: "own",
       note: parsed.note || "",
       wpOrderId: "",
