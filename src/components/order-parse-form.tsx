@@ -667,7 +667,7 @@ function ParsePreview({
         >
           <option value="manual">Manual (in-store / phone)</option>
           <option value="phone">Phone call</option>
-          <option value="facebook">Facebook (DM / Marketplace)</option>
+          <option value="facebook">Facebook To Website</option>
           <option value="whatsapp">WhatsApp</option>
           <option value="wordpress">WordPress website</option>
           <option value="walkin">Walk-in</option>
