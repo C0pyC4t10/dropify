@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import {
   Check,
   X,
@@ -13,35 +12,9 @@ import {
   RefreshCw,
   AlertTriangle,
   Zap,
-  Layers,
 } from "lucide-react";
-import type { Order, Product, Settings } from "@/lib/types";
+import type { Order, Product } from "@/lib/types";
 import { formatMoney } from "@/lib/ui";
-import { getAreaCentroid } from "@/lib/area-centroids";
-
-const ClientDhakaClusterMap = dynamic(
-  () => import("@/components/map/client-dhaka-cluster-map"),
-  {
-    ssr: false,
-    loading: () => (
-      <div
-        style={{
-          height: 420,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "var(--bg-elevated, #1a1a1a)",
-          color: "var(--text-muted)",
-          borderRadius: 10,
-          fontSize: 13,
-          border: "1px solid var(--border)",
-        }}
-      >
-        Loading map…
-      </div>
-    ),
-  },
-);
 
 export default function ApprovalQueuePage() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -52,31 +25,14 @@ export default function ApprovalQueuePage() {
   const [banner, setBanner] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [cancelFor, setCancelFor] = useState<Order | null>(null);
 
-  // Shop pin for the cluster map. Falls back to canonical Aftabnagar
-  // centroid before /api/settings resolves.
-  const aftab = getAreaCentroid("Aftabnagar");
-  const [shop, setShop] = useState<{ lat: number; lng: number; label: string }>({
-    lat: aftab.lat,
-    lng: aftab.lng,
-    label: "Shop",
-  });
-
   const load = useCallback(async () => {
     try {
-      const [o, p, s] = await Promise.all([
+      const [o, p] = await Promise.all([
         fetch("/api/orders").then((r) => r.json()),
         fetch("/api/products").then((r) => r.json()),
-        fetch("/api/settings").then((r) => r.json() as Promise<Settings>),
       ]);
       setOrders(o as Order[]);
       setProducts(p as Product[]);
-      if (s && s.shopLat != null && s.shopLng != null) {
-        setShop({
-          lat: s.shopLat,
-          lng: s.shopLng,
-          label: s.businessName?.trim() || "Shop",
-        });
-      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -242,18 +198,6 @@ export default function ApprovalQueuePage() {
             <RefreshCw size={15} />
           </button>
         </div>
-      </div>
-
-      {/* Dhaka Delivery Grid — same regional map as /routes. */}
-      <div className="card" style={{ padding: 14, marginBottom: 16, borderLeft: "3px solid var(--accent-amber)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-          <Layers size={16} color="var(--accent-amber)" />
-          <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>Dhaka Delivery Grid</h2>
-          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-            Your shop (red pin) and the four operational cluster regions. Click any region to see its description.
-          </span>
-        </div>
-        <ClientDhakaClusterMap shop={shop} height={420} />
       </div>
 
       {banner && (

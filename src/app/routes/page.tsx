@@ -15,11 +15,10 @@ import {
   Wand2,
   Layers,
 } from "lucide-react";
-import type { Order, Rider, Settings } from "@/lib/types";
+import type { Order, Rider } from "@/lib/types";
 import { formatMoney, ALL_CLUSTERS, CLUSTER_COLORS, CLUSTER_SHORT, CLUSTER_LABELS } from "@/lib/ui";
-import { getAreaCentroid } from "@/lib/area-centroids";
 
-// Lazy-load the maps so this page stays SSR-cheap
+// Lazy-load the map so this page stays SSR-cheap
 const ClientRouteMap = dynamic(() => import("@/components/map/client-route-map"), {
   ssr: false,
   loading: () => (
@@ -39,29 +38,6 @@ const ClientRouteMap = dynamic(() => import("@/components/map/client-route-map")
     </div>
   ),
 });
-const ClientDhakaClusterMap = dynamic(
-  () => import("@/components/map/client-dhaka-cluster-map"),
-  {
-    ssr: false,
-    loading: () => (
-      <div
-        style={{
-          height: 460,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "var(--bg-elevated, #1a1a1a)",
-          color: "var(--text-muted)",
-          borderRadius: 10,
-          fontSize: 13,
-          border: "1px solid var(--border)",
-        }}
-      >
-        Loading map…
-      </div>
-    ),
-  },
-);
 
 interface RidersWithPlansResponse {
   date: string;
@@ -116,16 +92,6 @@ export default function RoutesLandingPage() {
   const [unassigned, setUnassigned] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Shop pin — sourced from /api/settings (settings page is the editor). Falls
-  // back to the canonical Aftabnagar centroid so the cluster map still makes
-  // sense before settings load.
-  const aftab = getAreaCentroid("Aftabnagar");
-  const [shop, setShop] = useState<{ lat: number; lng: number; label: string }>({
-    lat: aftab.lat,
-    lng: aftab.lng,
-    label: "Shop",
-  });
-
   // Quick-locate state
   const [locateQuery, setLocateQuery] = useState("");
   const [locating, setLocating] = useState(false);
@@ -139,22 +105,14 @@ export default function RoutesLandingPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [p, u, r, s] = await Promise.all([
+      const [p, u, r] = await Promise.all([
         fetch(`/api/routes?date=${date}`).then((x) => x.json() as Promise<RidersWithPlansResponse>),
         fetch(`/api/routes/unassigned?date=${date}`).then((x) => x.json()),
         fetch(`/api/riders`).then((x) => x.json() as Promise<Rider[]>),
-        fetch(`/api/settings`).then((x) => x.json() as Promise<Settings>),
       ]);
       setRidersWithPlans(p.riders ?? []);
       setUnassigned((u.orders as Order[]) ?? []);
       setAllRiders(r ?? []);
-      if (s && s.shopLat != null && s.shopLng != null) {
-        setShop({
-          lat: s.shopLat,
-          lng: s.shopLng,
-          label: s.businessName?.trim() || "Shop",
-        });
-      }
     } finally {
       setLoading(false);
     }
@@ -322,18 +280,6 @@ export default function RoutesLandingPage() {
             style={{ padding: "4px 8px", fontSize: 13 }}
           />
         </div>
-      </div>
-
-      {/* Dhaka Cluster Map — operator's mental model: shop + 4 cluster regions. */}
-      <div className="card" style={{ padding: 14, marginBottom: 16, borderLeft: "3px solid var(--accent-amber)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-          <Layers size={16} color="var(--accent-amber)" />
-          <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>Dhaka Delivery Grid</h2>
-          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-            Your shop (red pin) and the four operational cluster regions. Click any region to see its description.
-          </span>
-        </div>
-        <ClientDhakaClusterMap shop={shop} height={460} />
       </div>
 
       {/* Quick Location card — paste an address, see it on the map with
