@@ -14,13 +14,14 @@ import {
   Zap,
 } from "lucide-react";
 import type { Order, Product } from "@/lib/types";
-import { formatMoney } from "@/lib/ui";
+import { formatMoney, ALL_CLUSTERS, CLUSTER_COLORS, CLUSTER_SHORT, CLUSTER_LABELS } from "@/lib/ui";
 
 export default function ApprovalQueuePage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [clusterFilter, setClusterFilter] = useState<"all" | "DHK-E" | "DHK-NW" | "DHK-CW" | "DHK-SE">("all");
   const [busy, setBusy] = useState<number | null>(null);
   const [banner, setBanner] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [cancelFor, setCancelFor] = useState<Order | null>(null);
@@ -55,9 +56,13 @@ export default function ApprovalQueuePage() {
   );
 
   const filtered = useMemo(() => {
-    if (!query) return pending;
+    let list = pending;
+    if (clusterFilter !== "all") {
+      list = list.filter((o) => o.cluster === clusterFilter);
+    }
+    if (!query) return list;
     const q = query.toLowerCase();
-    return pending.filter((o) => {
+    return list.filter((o) => {
       return (
         o.orderNo.toLowerCase().includes(q) ||
         (o.customerName || "").toLowerCase().includes(q) ||
@@ -66,7 +71,7 @@ export default function ApprovalQueuePage() {
         (o.area || "").toLowerCase().includes(q)
       );
     });
-  }, [pending, query]);
+  }, [pending, query, clusterFilter]);
 
   const flash = (kind: "ok" | "err", text: string) => {
     setBanner({ kind, text });
@@ -226,6 +231,40 @@ export default function ApprovalQueuePage() {
         </div>
       )}
 
+      <div style={{ display: "flex", gap: 6, marginBottom: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginRight: 4 }}>
+          Cluster
+        </span>
+        <button
+          onClick={() => setClusterFilter("all")}
+          className="btn"
+          style={{
+            fontSize: 12,
+            background: clusterFilter === "all" ? "rgba(59,130,246,0.18)" : "var(--bg-card)",
+            color: clusterFilter === "all" ? "var(--accent-blue)" : "var(--text-secondary)",
+            border: `1px solid ${clusterFilter === "all" ? "rgba(59,130,246,0.4)" : "var(--border)"}`,
+          }}
+        >
+          All
+        </button>
+        {ALL_CLUSTERS.map((c) => (
+          <button
+            key={c}
+            onClick={() => setClusterFilter(c)}
+            className="btn"
+            title={CLUSTER_LABELS[c]}
+            style={{
+              fontSize: 12,
+              background: clusterFilter === c ? `${CLUSTER_COLORS[c]}22` : "var(--bg-card)",
+              color: clusterFilter === c ? CLUSTER_COLORS[c] : "var(--text-secondary)",
+              border: `1px solid ${clusterFilter === c ? `${CLUSTER_COLORS[c]}88` : "var(--border)"}`,
+            }}
+          >
+            {CLUSTER_SHORT[c]}
+          </button>
+        ))}
+      </div>
+
       <div style={{ display: "flex", gap: 12, marginBottom: 14, alignItems: "center", flexWrap: "wrap" }}>
         <div style={{ position: "relative", width: 320 }}>
           <Search size={14} style={{ position: "absolute", left: 10, top: 10, color: "var(--text-muted)" }} />
@@ -250,6 +289,7 @@ export default function ApprovalQueuePage() {
                 <th>Source</th>
                 <th>Customer</th>
                 <th>Area</th>
+                <th>Cluster</th>
                 <th>Items</th>
                 <th>Total</th>
                 <th>Stock</th>
@@ -259,7 +299,7 @@ export default function ApprovalQueuePage() {
             <tbody>
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={{ color: "var(--text-muted)", padding: 36, textAlign: "center" }}>
+                  <td colSpan={9} style={{ color: "var(--text-muted)", padding: 36, textAlign: "center" }}>
                     {pending.length === 0 ? (
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                         <Inbox size={16} /> No orders waiting for approval.
@@ -316,6 +356,30 @@ export default function ApprovalQueuePage() {
                     <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{o.customerPhone}</div>
                   </td>
                   <td>{o.area || <span style={{ color: "var(--text-muted)" }}>—</span>}</td>
+                  <td className="hide-mobile">
+                    {o.cluster ? (
+                      <span
+                        title={`${CLUSTER_LABELS[o.cluster]}${o.subCluster ? ` · ${o.subCluster}` : ""}`}
+                        style={{
+                          display: "inline-block",
+                          fontSize: 11,
+                          fontWeight: 700,
+                          padding: "3px 8px",
+                          borderRadius: 6,
+                          color: CLUSTER_COLORS[o.cluster],
+                          background: `${CLUSTER_COLORS[o.cluster]}22`,
+                          border: `1px solid ${CLUSTER_COLORS[o.cluster]}55`,
+                        }}
+                      >
+                        {CLUSTER_SHORT[o.cluster]}
+                        {o.subCluster && (
+                          <span style={{ fontWeight: 400, marginLeft: 4, opacity: 0.8 }}>· {o.subCluster}</span>
+                        )}
+                      </span>
+                    ) : (
+                      <span style={{ color: "var(--text-muted)", fontSize: 12 }}>—</span>
+                    )}
+                  </td>
                   <td style={{ fontSize: 12, color: "var(--text-secondary)", maxWidth: 280 }}>
                     {summarize(o)}
                     <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
