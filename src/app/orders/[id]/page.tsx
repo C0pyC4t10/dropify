@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Printer, ArrowLeft, Bike, Receipt as ReceiptIcon, Edit3, Plus, Truck, FileText, TruckIcon } from "lucide-react";
 import type { Order, Rider, Settings, Customer, Product } from "@/lib/types";
 import type { DeliveryPartner, InvoiceFormat } from "@/lib/delivery-partners";
@@ -64,9 +64,19 @@ const PRINT_STYLES = `
 `;
 
 export default function OrderDetail() {
+  return (
+    <Suspense fallback={<div style={{ textAlign: "center", padding: "60px 0", color: "var(--text-muted)" }}>Loading...</div>}>
+      <OrderDetailInner />
+    </Suspense>
+  );
+}
+
+function OrderDetailInner() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const id = Number(params.id);
+  const autoPrint = searchParams.get("print") === "1";
 
   const goBack = () => {
     if (typeof window !== "undefined" && window.history.length > 1) {
@@ -131,6 +141,19 @@ export default function OrderDetail() {
       await load();
     })();
   }, [load]);
+
+  // Auto-trigger browser print when the page is opened with ?print=1
+  // (used by the order list "print" action and the new-order form's
+  // post-submit "print" flow). We wait until the order is loaded so the
+  // print preview actually has content; the small delay also lets the
+  // print-area's images (bKash QR) finish painting.
+  useEffect(() => {
+    if (!autoPrint || loading || !order) return;
+    const t = setTimeout(() => {
+      try { window.print(); } catch { /* user dismissed */ }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [autoPrint, loading, order]);
 
   const update = async (body: object) => {
     await fetch(`/api/orders/${id}`, {

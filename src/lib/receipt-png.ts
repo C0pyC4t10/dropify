@@ -165,7 +165,8 @@ export async function buildReceiptPng(
   settings: Settings,
   rider: Rider | null,
   outPath: string,
-  printedAt: Date = new Date()
+  printedAt: Date = new Date(),
+  opts: { skipQr?: boolean } = {}
 ): Promise<void> {
   const lines: ({ svg: string; lh: number; qr?: string; qrSize?: number })[] = [];
 
@@ -243,18 +244,20 @@ export async function buildReceiptPng(
   lines.push(sepLine("=", PX.body));
 
   // ---------- bKash Payment (static QR image) ----------
-  // The PNG already has a white background built in (the QR's own quiet
-  // zone). We just embed it; no extra borders, no extra padding.
-  try {
-    const bkashPath = path.join(process.cwd(), "public", "bkash-qr.png");
-    if (fs.existsSync(bkashPath)) {
-      const buf = fs.readFileSync(bkashPath);
-      const dataUrl = `data:image/png;base64,${buf.toString("base64")}`;
-      // Fill the printable width (80mm thermal). QR is 612x780 portrait.
-      lines.push(qrBlock(dataUrl, 280));
+  // Skipped for POS receipts (in-store cash-on-delivery printout —
+  // customer doesn't need a payment QR). Browser print still embeds it.
+  if (!opts.skipQr) {
+    try {
+      const bkashPath = path.join(process.cwd(), "public", "bkash-qr.png");
+      if (fs.existsSync(bkashPath)) {
+        const buf = fs.readFileSync(bkashPath);
+        const dataUrl = `data:image/png;base64,${buf.toString("base64")}`;
+        // Fill the printable width (80mm thermal). QR is 612x780 portrait.
+        lines.push(qrBlock(dataUrl, 280));
+      }
+    } catch {
+      /* skip QR if file missing */
     }
-  } catch {
-    /* skip QR if file missing */
   }
 
   // ---------- Footer ----------
