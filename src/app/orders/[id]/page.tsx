@@ -461,12 +461,11 @@ function OrderDetailInner() {
           </div>
         </div>
 
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12, fontSize: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, fontSize: 12, flexWrap: "wrap", gap: 8 }}>
           <div>
             <div style={{ fontWeight: 600 }}>Bill To</div>
             <div>{order.customerName}</div>
             <div>{order.customerPhone}</div>
-            <div>{order.area}{order.address ? ` — ${order.address}` : ""}</div>
           </div>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontWeight: 600 }}>Delivery</div>
@@ -482,6 +481,15 @@ function OrderDetailInner() {
             <div style={{ fontStyle: "italic", color: "var(--accent-red)", fontWeight: 500 }}>{order.note}</div>
           </div>
         </div>
+
+        {/* Address on its own row, full-width so it can wrap freely and
+            never get clipped by the page edge. */}
+        {(order.area || order.address) && (
+          <div style={{ fontSize: 12, marginBottom: 12, wordBreak: "break-word", overflowWrap: "anywhere" }}>
+            <span style={{ fontWeight: 600 }}>Address: </span>
+            {order.area}{order.address ? ` — ${order.address}` : ""}
+          </div>
+        )}
 
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginBottom: 12 }}>
           <thead>
