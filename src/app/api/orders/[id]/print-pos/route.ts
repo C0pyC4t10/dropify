@@ -351,28 +351,53 @@ function buildTsplTextReceipt(
   let y = 10;
   const parts: string[] = [];
 
+  // TSPL2 fonts only support ASCII / Latin-1 — anything outside that
+  // (em-dash, smart quotes, Bengali, etc.) is mangled by Node's "ascii"
+  // Buffer encoding (high byte stripped, leaving control chars that
+  // printers render as garbage like '/' or skip silently). Also drop
+  // ASCII double quotes — this printer's TSPL2 firmware doesn't honour
+  // the `""` escape inside TEXT parameters, so a `"` in the data ends
+  // the string early and the rest of the receipt gets corrupted.
+  const sanitize = (s: string): string =>
+    s
+      // common typographic chars → ASCII equivalents
+      .replace(/[\u2013\u2014\u2015]/g, "-")   // en/em/horizontal-bar dash
+      .replace(/[\u2018\u2019]/g, "'")          // smart single quotes
+      .replace(/[\u201C\u201D]/g, "'")          // smart double quotes → ASCII apostrophe
+      .replace(/[\u2022\u2023\u2043]/g, "*")    // bullets
+      .replace(/[\u00B7]/g, ".")                // middle dot
+      // raw ASCII double quotes also problematic on this firmware →
+      // turn into apostrophes (visual context makes it unambiguous for
+      // addresses like  "Nagar Nirupoma"  →  'Nagar Nirupoma')
+      .replace(/"/g, "'")
+      // drop everything else outside printable ASCII (0x20-0x7E)
+      .replace(/[^\x20-\x7E]/g, "");
+
   const l = (text: string, font: FontKey = "1", scale = 1, bold = false) => {
     const cmd = bold ? bld : txt;
-    parts.push(cmd(text, LEFT, y, font, scale, scale));
+    parts.push(cmd(sanitize(text), LEFT, y, font, scale, scale));
     y += advance(font, scale);
   };
   const c = (text: string, font: FontKey = "1", scale = 1, bold = false) => {
     const w = F[font].w * scale;
-    const x = Math.max(0, Math.floor((PAPER_W - text.length * w) / 2));
+    const safe = sanitize(text);
+    const x = Math.max(0, Math.floor((PAPER_W - safe.length * w) / 2));
     const cmd = bold ? bld : txt;
-    parts.push(cmd(text, x, y, font, scale, scale));
+    parts.push(cmd(safe, x, y, font, scale, scale));
     y += advance(font, scale);
   };
   // Two-column row with key on left, value right-aligned at the right
   // margin. Trim the key if it would overlap the value.
   const kv = (key: string, value: string, font: FontKey = "1", scale = 1, bold = false) => {
     const w = F[font].w * scale;
-    const valX = Math.max(LEFT, PAPER_W - RIGHT_PAD - value.length * w);
+    const safeValue = sanitize(value);
+    const valX = Math.max(LEFT, PAPER_W - RIGHT_PAD - safeValue.length * w);
     const maxKeyChars = Math.max(0, Math.floor((valX - LEFT - 4) / w));
-    const trimmedKey = key.length > maxKeyChars ? key.slice(0, Math.max(0, maxKeyChars - 1)) + "." : key;
+    const safeKey = sanitize(key);
+    const trimmedKey = safeKey.length > maxKeyChars ? safeKey.slice(0, Math.max(0, maxKeyChars - 1)) + "." : safeKey;
     const cmd = bold ? bld : txt;
     parts.push(cmd(trimmedKey, LEFT, y, font, scale, scale));
-    parts.push(cmd(value, valX, y, font, scale, scale));
+    parts.push(cmd(safeValue, valX, y, font, scale, scale));
     y += advance(font, scale);
   };
   const sep = (ch = "-") => l(ch.repeat(48));
@@ -397,32 +422,63 @@ function buildTsplTextReceipt(
   kv("Customer", order.customerName || "-");
   if (order.customerPhone) kv("Phone", order.customerPhone);
   // Full address: area + house/street/landmark if both present, otherwise
-  // whichever the order has. ` — ` separates area from the rest.
+  // whichever the order has. ` - ` (ASCII hyphen) separates area from the
+  // rest — we can't use an em-dash because TSPL2 fonts only support ASCII
+  // and the printer mangles any non-ASCII byte.
   // Long addresses wrap to 2 lines, with continuation indented under the
   // value side of the first line.
   const fullAddress = order.area && order.address
-    ? `${order.area} — ${order.address}`
+    ? `${order.area} - ${order.address}`
     : order.area || order.address || "";
   if (fullAddress) {
-    // First line ends right where the "Address:" label + 4 dots gap ends,
-    // so continuation lines indent to that column.
-    const ADDR_INDENT = LEFT + "Address:".length * F["1"].w + 4;
-    const firstMax = Math.max(8, Math.floor((PAPER_W - ADDR_INDENT - RIGHT_PAD) / F["1"].w));
-    const restMax = Math.max(8, Math.floor((PAPER_W - ADDR_INDENT - RIGHT_PAD) / F["1"].w));
-    if (fullAddress.length <= firstMax) {
-      kv("Address:", fullAddress);
+    // Address uses the FULL receipt width (not right-aligned like the
+    // other kv rows). Long addresses flow across multiple lines, each
+    // starting at LEFT (x=6) — no left-side gap. Font 2 (12x20 dots) is
+    // a small step up from the body font (font 1) so the address stands
+    // out without dominating the receipt.
+    const ADDR_FONT: FontKey = "2";
+    const CHAR_W = F[ADDR_FONT].w;            // 12 dots/char at font 2
+    const INNER_W = PAPER_W - LEFT - RIGHT_PAD;  // 564 dots
+    // Paper-width limit at font 2: 564/12 = 47 chars. The printer's
+    // per-TEXT firmware buffer turns out to be ~42 chars (anything more
+    // gets silently truncated), so the buffer is the binding constraint.
+    const PAPER_MAX = Math.floor(INNER_W / CHAR_W);
+    const BUFFER_MAX = 42;
+    const FULL_MAX = Math.min(PAPER_MAX, BUFFER_MAX);
+    const FIRST_MAX = FULL_MAX;
+    const REST_MAX = FULL_MAX;
+    // Reserve room for the "Address: " prefix on line 1.
+    const labelAndSpace = "Address: ";
+    const FIRST_VALUE_MAX = Math.max(8, FIRST_MAX - labelAndSpace.length);
+    if (fullAddress.length <= FIRST_VALUE_MAX) {
+      // Single line: "Address: <value>"
+      parts.push(
+        txt(sanitize(labelAndSpace + fullAddress), LEFT, y, ADDR_FONT, 1, 1)
+      );
+      y += advance(ADDR_FONT);
     } else {
-      // Split at the last space within firstMax for a clean break.
-      let cut = fullAddress.lastIndexOf(" ", firstMax);
-      if (cut <= 0 || cut > firstMax) cut = firstMax;
+      // First line ends at last space within FIRST_VALUE_MAX.
+      let cut = fullAddress.lastIndexOf(" ", FIRST_VALUE_MAX);
+      if (cut <= 0 || cut > FIRST_VALUE_MAX) cut = FIRST_VALUE_MAX;
       const first = fullAddress.slice(0, cut).trimEnd();
-      const rest = fullAddress.slice(cut).trimStart();
-      kv("Address:", first);
-      if (rest) {
-        // Wrap rest to a second line, indented to align with the value column.
-        const second = rest.length <= restMax ? rest : rest.slice(0, restMax - 1) + ".";
-        parts.push(txt(second, ADDR_INDENT, y, "1", 1, 1));
-        y += advance("1");
+      parts.push(
+        txt(sanitize(labelAndSpace + first), LEFT, y, ADDR_FONT, 1, 1)
+      );
+      y += advance(ADDR_FONT);
+      // Continuation lines: no label, full width.
+      let remaining = fullAddress.slice(cut).trimStart();
+      while (remaining.length > 0) {
+        if (remaining.length <= REST_MAX) {
+          parts.push(txt(sanitize(remaining), LEFT, y, ADDR_FONT, 1, 1));
+          y += advance(ADDR_FONT);
+          break;
+        }
+        let cut2 = remaining.lastIndexOf(" ", REST_MAX);
+        if (cut2 <= 0 || cut2 > REST_MAX) cut2 = REST_MAX;
+        const chunk = remaining.slice(0, cut2).trimEnd();
+        remaining = remaining.slice(cut2).trimStart();
+        parts.push(txt(sanitize(chunk), LEFT, y, ADDR_FONT, 1, 1));
+        y += advance(ADDR_FONT);
       }
     }
   }
@@ -496,5 +552,9 @@ function buildTsplTextReceipt(
   parts.push(`REFERENCE 0,0\n`);
   parts.push("PRINT 1\n");
 
+  {
+    const fs = require("fs");
+    fs.writeFileSync("/tmp/opencode/last-tspl.txt", Buffer.from(parts.join(""), "ascii").toString("ascii").replace(/[^\x20-\x7E\n]/g, "?"));
+  }
   return Buffer.from(parts.join(""), "ascii");
 }
