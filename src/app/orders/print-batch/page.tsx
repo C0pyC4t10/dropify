@@ -419,39 +419,7 @@ function PrintBatchPage() {
             {formatMoney(totalAll)} · Paid {formatMoney(paidAll)} · Due {formatMoney(dueAll)}
           </span>
         </div>
-
-        {/* bKash Payment — uses the static QR image at /bkash-qr.png */}
-        <BatchBkashQr />
       </div>
-    </div>
-  );
-}
-
-function BatchBkashQr() {
-  return (
-    <div
-      style={{
-        marginTop: 14,
-        display: "flex",
-        justifyContent: "center",
-        maxWidth: 520,
-        marginLeft: "auto",
-        marginRight: "auto",
-      }}
-    >
-      <img
-        src="/bkash-qr.png"
-        alt="bKash Payment QR"
-        style={{
-          width: "100%",
-          maxWidth: 520,
-          height: "auto",
-          aspectRatio: "612 / 780",
-          display: "block",
-          border: "4px solid #9d174d",
-          boxSizing: "border-box",
-        }}
-      />
     </div>
   );
 }
