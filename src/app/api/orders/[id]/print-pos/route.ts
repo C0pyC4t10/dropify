@@ -398,10 +398,34 @@ function buildTsplTextReceipt(
   if (order.customerPhone) kv("Phone", order.customerPhone);
   // Full address: area + house/street/landmark if both present, otherwise
   // whichever the order has. ` — ` separates area from the rest.
+  // Long addresses wrap to 2 lines, with continuation indented under the
+  // value side of the first line.
   const fullAddress = order.area && order.address
     ? `${order.area} — ${order.address}`
     : order.area || order.address || "";
-  if (fullAddress) kv("Address", fullAddress);
+  if (fullAddress) {
+    // First line ends right where the "Address:" label + 4 dots gap ends,
+    // so continuation lines indent to that column.
+    const ADDR_INDENT = LEFT + "Address:".length * F["1"].w + 4;
+    const firstMax = Math.max(8, Math.floor((PAPER_W - ADDR_INDENT - RIGHT_PAD) / F["1"].w));
+    const restMax = Math.max(8, Math.floor((PAPER_W - ADDR_INDENT - RIGHT_PAD) / F["1"].w));
+    if (fullAddress.length <= firstMax) {
+      kv("Address:", fullAddress);
+    } else {
+      // Split at the last space within firstMax for a clean break.
+      let cut = fullAddress.lastIndexOf(" ", firstMax);
+      if (cut <= 0 || cut > firstMax) cut = firstMax;
+      const first = fullAddress.slice(0, cut).trimEnd();
+      const rest = fullAddress.slice(cut).trimStart();
+      kv("Address:", first);
+      if (rest) {
+        // Wrap rest to a second line, indented to align with the value column.
+        const second = rest.length <= restMax ? rest : rest.slice(0, restMax - 1) + ".";
+        parts.push(txt(second, ADDR_INDENT, y, "1", 1, 1));
+        y += advance("1");
+      }
+    }
+  }
   let delivery: string;
   if (order.deliveryMode === "pathao") {
     delivery = order.pathaoTrackingId ? `Pathao ${order.pathaoTrackingId}` : "Pathao";
