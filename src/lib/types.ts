@@ -67,7 +67,8 @@ export type OrderStatus =
   | "preparing"
   | "out-for-delivery"
   | "delivered"
-  | "cancelled";
+  | "cancelled"
+  | "returned";
 
 export type OrderSource = "manual" | "facebook" | "wordpress" | "phone" | "whatsapp" | "walkin";
 
@@ -120,6 +121,8 @@ export interface Order {
   deliveredAt: string; // ISO timestamp when status first moved to "delivered"
   cancelledAt: string; // ISO timestamp when status moved to "cancelled"
   cancelReason: string; // free-text reason entered when cancelling
+  returnedAt: string; // ISO timestamp when status moved to "returned" (after delivery)
+  returnReason: string; // free-text reason entered when marking a delivered order returned
   /** True when stock was already deducted for this order. WP orders start
    *  at `false` and only flip to `true` after approval, so a rejected WP
    *  order never touches inventory. */

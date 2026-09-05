@@ -11,6 +11,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { StatusStepper } from "@/components/status-stepper";
 import { EditOrderModal } from "@/components/edit-order-modal";
 import { CancelOrderModal } from "@/components/cancel-order-modal";
+import { ReturnOrderModal } from "@/components/return-order-modal";
 import { BKASH_NUMBER } from "@/lib/bkash-qr";
 
 // Print-specific CSS: forces the entire invoice onto one A4 page.
@@ -96,6 +97,7 @@ function OrderDetailInner() {
   const [posMsg, setPosMsg] = useState<string>("");
   const [showEdit, setShowEdit] = useState(false);
   const [showCancel, setShowCancel] = useState(false);
+  const [showReturn, setShowReturn] = useState(false);
   // Two invoice formats: standard, or with a delivery partner shown in
   // the footer. Default picks based on the order's own delivery mode.
   const [invoiceFormat, setInvoiceFormat] = useState<InvoiceFormat>("standard");
@@ -167,6 +169,11 @@ function OrderDetailInner() {
   const cancelOrder = async (reason: string) => {
     await update({ status: "cancelled", cancelReason: reason });
     setShowCancel(false);
+  };
+
+  const returnOrder = async (reason: string) => {
+    await update({ status: "returned", returnReason: reason });
+    setShowReturn(false);
   };
 
   const printPos = async () => {
@@ -304,6 +311,7 @@ function OrderDetailInner() {
             status={order.status}
             onChange={(s) => update({ status: s })}
             onRequestCancel={() => setShowCancel(true)}
+            onRequestReturn={() => setShowReturn(true)}
           />
           {order.status === "delivered" && (
             <p style={{ fontSize: 12, color: "var(--accent-green)", margin: "12px 0 0" }}>
@@ -317,6 +325,17 @@ function OrderDetailInner() {
                 <>
                   <br />
                   <strong>Reason:</strong> {order.cancelReason}
+                </>
+              )}
+            </p>
+          )}
+          {order.status === "returned" && (
+            <p style={{ fontSize: 12, color: "#a78bfa", margin: "12px 0 0" }}>
+              Order was returned after delivery. Stock has been restored.
+              {order.returnReason && (
+                <>
+                  <br />
+                  <strong>Reason:</strong> {order.returnReason}
                 </>
               )}
             </p>
@@ -632,6 +651,12 @@ function OrderDetailInner() {
         orderNo={order.orderNo}
         onClose={() => setShowCancel(false)}
         onConfirm={cancelOrder}
+      />
+      <ReturnOrderModal
+        open={showReturn}
+        orderNo={order.orderNo}
+        onClose={() => setShowReturn(false)}
+        onConfirm={returnOrder}
       />
     </div>
   );

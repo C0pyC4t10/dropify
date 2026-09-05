@@ -224,6 +224,7 @@ label {
 .status-out-for-delivery { background: rgba(232, 163, 61, 0.15); color: var(--accent-amber); border: 1px solid rgba(232, 163, 61, 0.3); }
 .status-delivered { background: rgba(77, 158, 71, 0.15); color: var(--accent-green); border: 1px solid rgba(77, 158, 71, 0.3); }
 .status-cancelled { background: rgba(226, 59, 46, 0.15); color: var(--accent-red); border: 1px solid rgba(226, 59, 46, 0.3); }
+.status-returned { background: rgba(139, 92, 246, 0.15); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3); }
 
 /* Stat cards */
 .stat-card {

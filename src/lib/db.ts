@@ -244,6 +244,10 @@ function initSchema(db: Database.Database): void {
     db.exec("ALTER TABLE orders ADD COLUMN cluster TEXT");
     db.exec("ALTER TABLE orders ADD COLUMN subCluster TEXT");
   }
+  if (!orderCols.includes("returnedAt")) {
+    db.exec("ALTER TABLE orders ADD COLUMN returnedAt TEXT NOT NULL DEFAULT ''");
+    db.exec("ALTER TABLE orders ADD COLUMN returnReason TEXT NOT NULL DEFAULT ''");
+  }
   // Riders: homeCluster / subClusters / maxStops for the 4-cluster dispatch grid.
   const riderCols = (db.prepare("PRAGMA table_info(riders)").all() as Array<{ name: string }>).map(
     (c) => c.name
@@ -597,6 +601,8 @@ function rowToOrder(r: Record<string, unknown>): Order {
     deliveredAt: (r.deliveredAt as string) ?? "",
     cancelledAt: (r.cancelledAt as string) ?? "",
     cancelReason: (r.cancelReason as string) ?? "",
+    returnedAt: (r.returnedAt as string) ?? "",
+    returnReason: (r.returnReason as string) ?? "",
     stockDeducted: ((r.stockDeducted as number) ?? 1) === 1,
     wpOrderId: (r.wpOrderId as string) ?? "",
     cluster: (r.cluster as Order["cluster"]) ?? null,
@@ -895,7 +901,7 @@ export function getOrderStatsForCustomer(customerId: number): CustomerOrderStats
          COUNT(*) AS total,
          COALESCE(SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END), 0) AS delivered,
          COALESCE(SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END), 0) AS cancelled,
-         COALESCE(SUM(CASE WHEN status NOT IN ('delivered','cancelled') THEN 1 ELSE 0 END), 0) AS inProgress,
+         COALESCE(SUM(CASE WHEN status NOT IN ('delivered','cancelled','returned') THEN 1 ELSE 0 END), 0) AS inProgress,
          COALESCE(SUM(CASE WHEN status = 'delivered' THEN total ELSE 0 END), 0) AS lifetimeSpend
        FROM orders
        WHERE customerId = ?`
@@ -1314,11 +1320,12 @@ export function createOrder(input: NewOrderInput): CreateOrderResult {
     "total", "paid", "paymentMethod", "status", "source", "deliveryMode",
     "pathaoTrackingId", "pathaoFare", "riderId", "riderCost", "note",
     "createdAt", "confirmedAt", "deliveredAt", "cancelledAt", "cancelReason",
+    "returnedAt", "returnReason",
     "stockDeducted", "wpOrderId", "updatedAt", "lat", "lng", "riderSeq",
     "cluster", "subCluster",
   ];
-  if (cols.length !== 36) {
-    throw new Error(`orders INSERT column list length is ${cols.length}, expected 36`);
+  if (cols.length !== 38) {
+    throw new Error(`orders INSERT column list length is ${cols.length}, expected 38`);
   }
   const placeholders = cols.map(() => "?").join(", ");
   const sql = `INSERT INTO orders (${cols.join(", ")}) VALUES (${placeholders})`;
@@ -1353,6 +1360,8 @@ export function createOrder(input: NewOrderInput): CreateOrderResult {
     "",                                                // deliveredAt
     "",                                                // cancelledAt
     "",                                                // cancelReason
+    "",                                                // returnedAt
+    "",                                                // returnReason
     stockDeductedAtCreate ? 1 : 0,                     // stockDeducted
     input.wpOrderId ?? "",                             // wpOrderId
     now,                                               // updatedAt
@@ -1468,7 +1477,7 @@ export function updateOrder(id: number, data: Partial<Order>): Order | null {
     `UPDATE orders SET orderNo=?, date=?, customerId=?, customerName=?, customerPhone=?, area=?, address=?, items=?,
        subtotal=?, deliveryFee=?, discount=?, total=?, paid=?, paymentMethod=?, status=?, source=?, deliveryMode=?,
        pathaoTrackingId=?, pathaoFare=?, riderId=?, riderCost=?, note=?, createdAt=?, confirmedAt=?, deliveredAt=?,
-       cancelledAt=?, cancelReason=?, updatedAt=?, lat=?, lng=?, riderSeq=?, cluster=?, subCluster=? WHERE id=?`
+       cancelledAt=?, cancelReason=?, returnedAt=?, returnReason=?, updatedAt=?, lat=?, lng=?, riderSeq=?, cluster=?, subCluster=? WHERE id=?`
   ).run(
     merged.orderNo,
     merged.date,
@@ -1497,6 +1506,8 @@ export function updateOrder(id: number, data: Partial<Order>): Order | null {
     merged.deliveredAt,
     merged.cancelledAt,
     merged.cancelReason,
+    merged.returnedAt,
+    merged.returnReason,
     merged.updatedAt,
     merged.lat,
     merged.lng,
@@ -1611,8 +1622,12 @@ export function setOrderStatus(
 
   const flow = ["new", "confirmed", "preparing", "out-for-delivery", "delivered"] as const;
   const currentIdx = flow.indexOf(order.status as typeof flow[number]);
-  // pending-approval is not in flow; treat it as -1 so guards don't fire on it.
-  const targetIdx = status === "cancelled" || status === "pending-approval" ? -1 : flow.indexOf(status);
+  // pending-approval and "terminal" statuses (cancelled, returned) are not in flow;
+  // treat them as -1 so the backward-move guards don't fire on them.
+  const targetIdx =
+    status === "cancelled" || status === "returned" || status === "pending-approval"
+      ? -1
+      : flow.indexOf(status);
   // pending-approval must be resolved via approveOrder()/cancelPendingOrder() —
   // setOrderStatus bypasses stock-deduction logic.
   if (order.status === "pending-approval" || status === "pending-approval") {
@@ -1626,11 +1641,16 @@ export function setOrderStatus(
       `Cannot move order backwards from "${order.status}" to "${status}". Order is already out for delivery.`
     );
   }
-  if (order.status === "delivered" && status !== "delivered") {
+  // Delivered is final except for a return. Returns are the only legal exit
+  // from delivered; any other backward move still throws.
+  if (order.status === "delivered" && status !== "delivered" && status !== "returned") {
     throw new Error(`Cannot move a delivered order backwards to "${status}".`);
   }
   if (order.status === "cancelled" && status !== "cancelled") {
     throw new Error(`Cannot un-cancel a cancelled order.`);
+  }
+  if (order.status === "returned" && status !== "returned") {
+    throw new Error(`Cannot move a returned order back to "${status}". Returns are final.`);
   }
 
   // Stock moves are gated on `stockDeducted`. With the current model:
@@ -1642,6 +1662,9 @@ export function setOrderStatus(
   //     cancelled before delivery (stockDeducted=false) leave inventory alone.
   //   - un-cancelling a previously-cancelled order re-deducts only if stock
   //     had been taken away, then returned, before cancel.
+  //   - returns (delivered → returned) restore stock since the goods came
+  //     back. stockDeducted is flipped to false so the inventory is treated
+  //     as resellable again.
   if (status === "cancelled" && order.status !== "cancelled" && order.stockDeducted) {
     applyOrderToStock(order, -1);
   }
@@ -1653,6 +1676,11 @@ export function setOrderStatus(
   if (willDeductOnDelivery) {
     applyOrderToStock(order, 1);
   }
+  const willRestoreOnReturn =
+    status === "returned" && order.status === "delivered" && order.stockDeducted;
+  if (willRestoreOnReturn) {
+    applyOrderToStock(order, -1);
+  }
 
   const now = new Date().toISOString();
   const confirmedIdx = flow.indexOf("confirmed");
@@ -1660,6 +1688,8 @@ export function setOrderStatus(
   let confirmedAt = order.confirmedAt;
   let deliveredAt = order.deliveredAt;
   let cancelledAt = order.cancelledAt;
+  let returnedAt = order.returnedAt;
+  let returnReason = order.returnReason;
   if (targetIdx < currentIdx) {
     if (targetIdx < deliveredIdx) deliveredAt = "";
     if (targetIdx < confirmedIdx) confirmedAt = "";
@@ -1667,22 +1697,35 @@ export function setOrderStatus(
   if (status === "confirmed" && !confirmedAt) confirmedAt = now;
   if (status === "delivered" && !deliveredAt) deliveredAt = now;
   if (status === "cancelled" && !cancelledAt) cancelledAt = now;
+  if (status === "returned" && !returnedAt) {
+    returnedAt = now;
+    returnReason = (cancelReason || "").trim();
+  }
+  // clear returned fields if moving AWAY from returned (shouldn't happen given
+  // the guard above, but keep state clean if the caller bypasses)
+  if (status !== "returned") {
+    returnReason = "";
+  }
   const finalReason =
     status === "cancelled" ? (cancelReason || "").trim() : "";
 
   let paid = order.paid;
   if (status === "delivered" && paid < order.total) paid = order.total;
+  // Returns leave `paid` alone — refund handling happens out of band
+  // (cash return, bKash send-money back, etc.) and isn't tracked here.
 
   db.prepare(
-    `UPDATE orders SET status=?, confirmedAt=?, deliveredAt=?, cancelledAt=?, cancelReason=?, paid=?, stockDeducted=?, updatedAt=? WHERE id=?`
+    `UPDATE orders SET status=?, confirmedAt=?, deliveredAt=?, cancelledAt=?, cancelReason=?, returnedAt=?, returnReason=?, paid=?, stockDeducted=?, updatedAt=? WHERE id=?`
   ).run(
     status,
     confirmedAt,
     deliveredAt,
     cancelledAt,
     finalReason,
+    returnedAt,
+    returnReason,
     paid,
-    willDeductOnDelivery ? 1 : (order.stockDeducted ? 1 : 0),
+    willDeductOnDelivery ? 1 : (willRestoreOnReturn ? 0 : (order.stockDeducted ? 1 : 0)),
     now,
     id
   );
@@ -2240,7 +2283,10 @@ export function getDashboard(): DashboardStats {
   const allOrders = getOrders();
 
   const todayOrders = allOrders.filter((o) => o.confirmedAt && isToday(o.confirmedAt));
-  const todayDelivered = allOrders.filter((o) => o.deliveredAt && isToday(o.deliveredAt));
+  // Exclude returned orders from revenue — goods came back so the sale
+  // didn't actually close. (paid stays in the column for accounting; just
+  // don't add it to totals here.)
+  const todayDelivered = allOrders.filter((o) => o.deliveredAt && isToday(o.deliveredAt) && o.status !== "returned");
   const todayRevenue = todayDelivered.reduce((s, o) => s + o.total, 0);
 
   const month = new Date().getMonth();
@@ -2248,6 +2294,7 @@ export function getDashboard(): DashboardStats {
   const monthlyRevenue = allOrders
     .filter((o) => {
       if (!o.deliveredAt) return false;
+      if (o.status === "returned") return false;
       const d = new Date(o.deliveredAt);
       return d.getMonth() === month && d.getFullYear() === year;
     })
@@ -2266,7 +2313,7 @@ export function getDashboard(): DashboardStats {
       orders: todayOrders.length,
       revenue: todayRevenueRounded,
       delivered: todayDelivered.length,
-      pending: todayOrders.filter((o) => !["delivered", "cancelled"].includes(o.status)).length,
+      pending: todayOrders.filter((o) => !["delivered", "cancelled", "returned"].includes(o.status)).length,
       newCount: todayOrders.filter((o) => o.status === "new").length,
       expenses: todayExpenses,
       net: Math.round((todayRevenueRounded - todayExpenses) * 100) / 100,
@@ -2275,7 +2322,7 @@ export function getDashboard(): DashboardStats {
     lowStock: getLowStock(),
     activeRiders: getActiveRiders(),
     openOrders: allOrders
-      .filter((o) => !["delivered", "cancelled", "new", "pending-approval"].includes(o.status))
+      .filter((o) => !["delivered", "cancelled", "returned", "new", "pending-approval"].includes(o.status))
       .sort((a, b) => (a.date > b.date ? 1 : a.date < b.date ? -1 : a.id - b.id))
       .slice(0, 20),
     newOrders: allOrders

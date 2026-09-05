@@ -15,7 +15,11 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     const data = await request.json();
     let order;
     if (data.status) {
-      order = setOrderStatus(id, data.status, data.cancelReason);
+      // Both "cancelled" and "returned" carry a reason string. The DB
+      // function (setOrderStatus) picks the right one based on status —
+      // it ignores cancelReason unless the transition is into "cancelled".
+      const reason = data.cancelReason ?? data.returnReason;
+      order = setOrderStatus(id, data.status, reason);
     } else if ("riderId" in data) {
       order = assignRider(id, data.riderId);
     } else {
@@ -28,7 +32,8 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     const isValidation =
       msg.includes("Cannot move") ||
       msg.includes("Cannot un-cancel") ||
-      msg.includes("Cannot move a delivered");
+      msg.includes("Cannot move a delivered") ||
+      msg.includes("Cannot move a returned");
     return NextResponse.json({ error: msg }, { status: isValidation ? 400 : 500 });
   }
 }

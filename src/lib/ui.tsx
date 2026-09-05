@@ -10,6 +10,7 @@ export const STATUS_LABELS: Record<OrderStatus, string> = {
   "out-for-delivery": "Out for Delivery",
   "delivered": "Delivered",
   "cancelled": "Cancelled",
+  "returned": "Returned",
 };
 
 export const STATUS_FLOW: OrderStatus[] = [

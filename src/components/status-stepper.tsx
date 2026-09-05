@@ -2,19 +2,22 @@
 
 import type { OrderStatus } from "@/lib/types";
 import { STATUS_LABELS, STATUS_FLOW } from "@/lib/ui";
-import { Check, Lock } from "lucide-react";
+import { Check, Lock, Undo2 } from "lucide-react";
 
 interface Props {
   status: OrderStatus;
   onChange: (s: OrderStatus) => void;
   onRequestCancel?: () => void;
+  onRequestReturn?: () => void;
 }
 
-export function StatusStepper({ status, onChange, onRequestCancel }: Props) {
+export function StatusStepper({ status, onChange, onRequestCancel, onRequestReturn }: Props) {
   const cancelled = status === "cancelled";
+  const returned = status === "returned";
   const maxIdx = STATUS_FLOW.indexOf(status);
-  const completedIdx = cancelled ? -1 : maxIdx;
+  const completedIdx = cancelled || returned ? -1 : maxIdx;
   const isFinal = status === "delivered";
+  const isTerminal = cancelled || returned;
   // Once out-for-delivery has begun, no going back — order is committed.
   // While preparing (or earlier), previous steps remain clickable.
   const lockedFromHere = status === "out-for-delivery";
@@ -23,11 +26,11 @@ export function StatusStepper({ status, onChange, onRequestCancel }: Props) {
     <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
       {STATUS_FLOW.map((s, i) => {
         const done = completedIdx >= i;
-        const current = !cancelled && maxIdx === i;
+        const current = !isTerminal && maxIdx === i;
         // Forward-only while in-flight: cannot go back once the rider has the order.
-        const isPast = !cancelled && maxIdx > i;
+        const isPast = !isTerminal && maxIdx > i;
         // Once delivered, lock every step (no going back).
-        const locked = isFinal || (lockedFromHere && isPast);
+        const locked = isTerminal || isFinal || (lockedFromHere && isPast);
         return (
           <button
             key={s}
@@ -60,7 +63,9 @@ export function StatusStepper({ status, onChange, onRequestCancel }: Props) {
               opacity: locked ? 0.55 : 1,
             }}
             title={
-              isFinal
+              isTerminal
+                ? `Order is ${STATUS_LABELS[status]} — status is locked`
+                : isFinal
                 ? "Order is delivered — status is locked"
                 : lockedFromHere && isPast
                 ? "Order is out for delivery — cannot revert to earlier step"
@@ -74,17 +79,50 @@ export function StatusStepper({ status, onChange, onRequestCancel }: Props) {
       })}
       <button
         onClick={() => {
-          if (isFinal) return;
+          if (isTerminal) return;
           if (onRequestCancel) onRequestCancel();
           else onChange("cancelled");
         }}
-        disabled={isFinal}
+        disabled={isTerminal}
         className="btn btn-danger"
-        style={{ fontSize: 12, marginLeft: 4, cursor: isFinal ? "not-allowed" : "pointer", opacity: isFinal ? 0.55 : 1 }}
-        title={isFinal ? "Cannot cancel a delivered order" : "Cancel order"}
+        style={{ fontSize: 12, marginLeft: 4, cursor: isTerminal ? "not-allowed" : "pointer", opacity: isTerminal ? 0.55 : 1 }}
+        title={
+          returned
+            ? "Cannot cancel a returned order"
+            : cancelled
+            ? "Order is already cancelled"
+            : isFinal
+            ? "Cannot cancel a delivered order"
+            : "Cancel order"
+        }
       >
         Cancel
       </button>
+      {/* Return button — only available for delivered orders. Goes through
+          onRequestReturn so the parent can capture the reason. */}
+      {isFinal && (
+        <button
+          onClick={() => {
+            if (onRequestReturn) onRequestReturn();
+            else onChange("returned");
+          }}
+          className="btn"
+          style={{
+            fontSize: 12,
+            marginLeft: 4,
+            background: "rgba(139, 92, 246, 0.18)",
+            color: "#a78bfa",
+            border: "1px solid rgba(139, 92, 246, 0.4)",
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+          }}
+          title="Mark this delivered order as returned (restores stock)"
+        >
+          <Undo2 size={12} />
+          Return
+        </button>
+      )}
     </div>
   );
 }

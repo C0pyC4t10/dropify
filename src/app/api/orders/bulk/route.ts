@@ -40,6 +40,16 @@ export async function PUT(request: Request) {
           results.push({ id, ok: false, error: String(e) });
         }
       }
+    } else if (action === "return") {
+      const reason = typeof body.returnReason === "string" ? body.returnReason : "";
+      for (const id of ids) {
+        try {
+          setOrderStatus(id, "returned", reason);
+          results.push({ id, ok: true });
+        } catch (e) {
+          results.push({ id, ok: false, error: String(e) });
+        }
+      }
     } else if (action === "delete") {
       for (const id of ids) {
         try {

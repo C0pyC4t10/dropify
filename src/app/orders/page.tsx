@@ -22,6 +22,7 @@ const FILTERS: Array<OrderStatus | "all"> = [
   "out-for-delivery",
   "delivered",
   "cancelled",
+  "returned",
 ];
 
 export default function OrdersPage() {
@@ -255,7 +256,7 @@ function OrdersPageContent() {
     });
   };
 
-  const bulkAction = async (action: "confirm" | "delivered" | "cancel" | "delete", cancelReason?: string) => {
+  const bulkAction = async (action: "confirm" | "delivered" | "cancel" | "return" | "delete", reason?: string) => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
     if (action === "delete") {
@@ -267,7 +268,7 @@ function OrdersPageContent() {
       const res = await fetch("/api/orders/bulk", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids, action, cancelReason }),
+        body: JSON.stringify({ ids, action, cancelReason: reason, returnReason: reason }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Bulk action failed");
