@@ -383,6 +383,20 @@ function PrintBatchPage() {
           .orders-table .amount { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--text); }
           .orders-table .taka { color: #15803d; font-weight: 700; margin-right: 2px; }
           .orders-table .phone { color: var(--muted); font-size: 9.5px; font-weight: 500; margin-top: 1px; }
+          .orders-table .reason {
+            font-size: 9px;
+            color: var(--text-muted);
+            font-style: italic;
+            font-weight: 500;
+            margin-top: 3px;
+            max-width: 100px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            line-height: 1.2;
+          }
 
           /* ===== Status pills (vibrant with subtle gradient) ===== */
           .pill {
@@ -1003,6 +1017,20 @@ function ListViewTable({
                 <span className={`pill ${PILL_CLASS[o.status] || "other"}`}>
                   {STATUS_LABEL[o.status] || o.status}
                 </span>
+                {(o.status === "cancelled" || o.status === "returned") && (
+                  <div
+                    className="reason"
+                    title={
+                      o.status === "cancelled"
+                        ? `Cancelled: ${o.cancelReason || "(no reason given)"}`
+                        : `Returned: ${o.returnReason || "(no reason given)"}`
+                    }
+                  >
+                    {(
+                      o.status === "cancelled" ? o.cancelReason : o.returnReason
+                    ) || <em style={{ color: "var(--text-muted)", fontStyle: "italic" }}>(no reason)</em>}
+                  </div>
+                )}
               </td>
             </tr>
           ))}

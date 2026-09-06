@@ -17,6 +17,10 @@ export function StatusStepper({ status, onChange, onRequestCancel, onRequestRetu
   const maxIdx = STATUS_FLOW.indexOf(status);
   const completedIdx = cancelled || returned ? -1 : maxIdx;
   const isFinal = status === "delivered";
+  const isDispatched = status === "out-for-delivery";
+  // Return is available once stock has been deducted — i.e. once the order
+  // is out for delivery, and of course after delivered.
+  const canReturn = isFinal || isDispatched;
   const isTerminal = cancelled || returned;
   // Once out-for-delivery has begun, no going back — order is committed.
   // While preparing (or earlier), previous steps remain clickable.
@@ -98,9 +102,10 @@ export function StatusStepper({ status, onChange, onRequestCancel, onRequestRetu
       >
         Cancel
       </button>
-      {/* Return button — only available for delivered orders. Goes through
-          onRequestReturn so the parent can capture the reason. */}
-      {isFinal && (
+      {/* Return button — available once stock has been deducted (out-for-delivery
+          and delivered). Goes through onRequestReturn so the parent can
+          capture the reason. */}
+      {canReturn && (
         <button
           onClick={() => {
             if (onRequestReturn) onRequestReturn();
@@ -117,7 +122,11 @@ export function StatusStepper({ status, onChange, onRequestCancel, onRequestRetu
             alignItems: "center",
             gap: 4,
           }}
-          title="Mark this delivered order as returned (restores stock)"
+          title={
+            isFinal
+              ? "Mark this delivered order as returned (restores stock)"
+              : "Mark this out-for-delivery order as returned mid-dispatch (restores stock)"
+          }
         >
           <Undo2 size={12} />
           Return

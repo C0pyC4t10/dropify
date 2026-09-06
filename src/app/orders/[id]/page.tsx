@@ -318,6 +318,11 @@ function OrderDetailInner() {
               Order completed. {formatMoney(order.total)} receivable from customer.
             </p>
           )}
+          {order.status === "out-for-delivery" && (
+            <p style={{ fontSize: 12, color: "var(--accent-amber)", margin: "12px 0 0" }}>
+              Out for delivery. Stock has been deducted. Use <strong>Return</strong> if the order comes back undelivered.
+            </p>
+          )}
           {cancelled && (
             <p style={{ fontSize: 12, color: "var(--accent-red)", margin: "12px 0 0" }}>
               This order was cancelled. Stock has been restored.
