@@ -1199,6 +1199,14 @@ export interface NewOrderInput {
   note: string;
   /** WP order id (WooCommerce integer or "wc-X"). Optional. */
   wpOrderId?: string;
+  /**
+   * Override the auto-generated order number. When provided, must be unique
+   * across the `orders` table — duplicates throw so callers can surface a
+   * clean error to the operator. Quick-Add passes the WooCommerce order id
+   * here for `source === "wordpress"` orders so the WP # shows up as the
+   * primary order ID on the list, detail page, and invoice.
+   */
+  orderNo?: string;
   /** Reserved. Stock is no longer deducted at create time — every order
    *  stays at `stockDeducted=false` until it transitions to "delivered".
    *  Kept on the signature so existing callers (webhooks) keep compiling. */
@@ -1289,6 +1297,24 @@ export function createOrder(input: NewOrderInput): CreateOrderResult {
 
   const id = nextId(db, "orders");
   const now = new Date().toISOString();
+
+  // Resolve orderNo: caller-provided (e.g. WP quick-add) takes priority over
+  // the auto-generated MD-{year}-{seq}. Empty / whitespace strings fall
+  // through to auto-gen. Caller-provided values must be unique — duplicates
+  // throw so the API can return a 400 with a useful message.
+  let resolvedOrderNo: string;
+  if (input.orderNo && input.orderNo.trim()) {
+    const candidate = input.orderNo.trim();
+    const clash = db
+      .prepare("SELECT id FROM orders WHERE orderNo = ?")
+      .get(candidate) as { id: number } | undefined;
+    if (clash) {
+      throw new Error(`Order #${candidate} already exists (id=${clash.id})`);
+    }
+    resolvedOrderNo = candidate;
+  } else {
+    resolvedOrderNo = nextOrderNo(db);
+  }
   const items = input.items.map((it) => {
     const p = getProduct(it.productId);
     const lineTotal = Math.round(it.qty * it.unitPrice * 100) / 100;
@@ -1333,7 +1359,7 @@ export function createOrder(input: NewOrderInput): CreateOrderResult {
   // Build value array in the same column order. riderId + riderSeq get explicit null.
   const values: Array<string | number | null> = [
     id,                                                // id
-    nextOrderNo(db),                                   // orderNo
+    resolvedOrderNo,                                   // orderNo
     input.date || todayStr(),                          // date
     resolvedCustomerId,                                // customerId
     input.customerName,                                // customerName
@@ -1690,11 +1716,22 @@ export function setOrderStatus(
   let cancelledAt = order.cancelledAt;
   let returnedAt = order.returnedAt;
   let returnReason = order.returnReason;
+  // Track whether o.date needs to be re-written to the BD date of confirmedAt.
+  // We do this whenever we first stamp confirmedAt = now so the displayed
+  // "date" column reflects the confirmation time, not the create time.
+  let dateOverride: string | null = null;
   if (targetIdx < currentIdx) {
     if (targetIdx < deliveredIdx) deliveredAt = "";
     if (targetIdx < confirmedIdx) confirmedAt = "";
   }
-  if (status === "confirmed" && !confirmedAt) confirmedAt = now;
+  if (status === "confirmed" && !confirmedAt) {
+    confirmedAt = now;
+    // Overwrite o.date with the BD local date of this confirmation so the
+    // orders list, Today filter, and reports all reflect when the order was
+    // actually locked in (not when it was created or scheduled).
+    const bd = new Date(new Date(confirmedAt).getTime() + 6 * 60 * 60 * 1000);
+    dateOverride = bd.toISOString().slice(0, 10);
+  }
   if (status === "delivered" && !deliveredAt) deliveredAt = now;
   if (status === "cancelled" && !cancelledAt) cancelledAt = now;
   if (status === "returned" && !returnedAt) {
@@ -1714,10 +1751,16 @@ export function setOrderStatus(
   // Returns leave `paid` alone — refund handling happens out of band
   // (cash return, bKash send-money back, etc.) and isn't tracked here.
 
+  // When the user just confirmed the order for the first time, push the
+  // BD-local confirmation date into the orders.date column so lists/reports
+  // that filter by date reflect confirmation time, not create time.
+  const dateToWrite = dateOverride ?? order.date;
+
   db.prepare(
-    `UPDATE orders SET status=?, confirmedAt=?, deliveredAt=?, cancelledAt=?, cancelReason=?, returnedAt=?, returnReason=?, paid=?, stockDeducted=?, updatedAt=? WHERE id=?`
+    `UPDATE orders SET status=?, date=?, confirmedAt=?, deliveredAt=?, cancelledAt=?, cancelReason=?, returnedAt=?, returnReason=?, paid=?, stockDeducted=?, updatedAt=? WHERE id=?`
   ).run(
     status,
+    dateToWrite,
     confirmedAt,
     deliveredAt,
     cancelledAt,

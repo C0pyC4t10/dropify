@@ -104,7 +104,19 @@ export async function POST(request: Request) {
       source: parsed.source || "manual",
       deliveryMode: "own",
       note: parsed.note || "",
-      wpOrderId: "",
+      // For WordPress/WooCommerce orders the pasted "Order #12345" becomes
+      // the primary orderNo shown on the list / detail / invoice. The same
+      // value is also stored in wpOrderId so the existing WP status-sync
+      // code keeps working. For other sources the auto-generated MD-{year}-
+      // {seq} is used and wpOrderId stays empty — old behaviour.
+      wpOrderId:
+        (parsed.source || "manual") === "wordpress"
+          ? (parsed.orderNo || "").trim()
+          : "",
+      orderNo:
+        (parsed.source || "manual") === "wordpress" && (parsed.orderNo || "").trim()
+          ? (parsed.orderNo || "").trim()
+          : undefined,
       skipStockDeduction: true,
       initialStatus: "pending-approval",
     });
@@ -113,7 +125,13 @@ export async function POST(request: Request) {
       { status: 201 }
     );
   } catch (e) {
+    const msg = String(e);
     console.error("[orders/parse] error:", e);
-    return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
+    // Duplicate orderNo from a manual WP paste → 400 with a clean message
+    // instead of a generic 500, so the operator can correct it.
+    if (/already exists/i.test(msg) && /Order #/i.test(msg)) {
+      return NextResponse.json({ ok: false, error: msg }, { status: 400 });
+    }
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }

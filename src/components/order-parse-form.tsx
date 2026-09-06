@@ -128,6 +128,8 @@ export default function OrderParseForm({ products, settings }: Props) {
         setSubmitting(false);
         return;
       }
+      // For WP orders the orderNo shown here is the pasted WP id (e.g.
+      // #30357). For other sources it's the auto-generated MD-{year}-{seq}.
       setBanner({ kind: "ok", text: `Order #${data.order.orderNo} created. Pending review.` });
       setTimeout(() => router.push("/orders/approval"), 1100);
     } catch (e) {
@@ -399,6 +401,37 @@ function ParsePreview({
           Confidence {Math.round(((c.customerName + c.customerPhone + c.items) / 3) * 100)}%
         </span>
       </div>
+
+      {parsed.source === "wordpress" && (
+        <Field label="WP Order #" tone={parsed.orderNo ? "ok" : "warn"}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <input
+              className="qp-input"
+              value={parsed.orderNo}
+              onChange={(e) => onPatch({ orderNo: e.target.value.trim() })}
+              disabled={disabled}
+              placeholder="WooCommerce order id"
+              inputMode="numeric"
+            />
+            {parsed.orderNo && (
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: "2px 8px",
+                  borderRadius: 4,
+                  background: "rgba(77,158,71,0.10)",
+                  color: "var(--accent-green)",
+                  border: "1px solid rgba(77,158,71,0.35)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                WP auto
+              </span>
+            )}
+          </div>
+        </Field>
+      )}
 
       <Field label="Customer name" tone={cf(c.customerName)}>
         <input

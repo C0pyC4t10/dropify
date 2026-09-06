@@ -16,6 +16,8 @@ export interface ParsedOrder {
   items: ParsedOrderItem[];
   note: string;
   totalHint: number | null; // raw total found in text (e.g. "৳1,790.00")
+  /** External order number parsed from the paste (e.g. WooCommerce "Order #30352"). */
+  orderNo: string;
   /** Inferred order source channel (facebook/whatsapp/phone/etc.). UI may override. */
   source: OrderSource;
   /** Sum of items×qty + delivery, computed from item list — used for cross-check. */
@@ -103,7 +105,7 @@ const BANGLA_ADDRESS_KEYWORDS = [
 ];
 
 /** A line that LOOKS LIKE a label, never an address/name. */
-const labelRe = /^(?:phone|phone\s*no\.?|মোবাইল|মোবাইল\s*নাম্বার|payment|payment\s*(?:via|method)?|shipping|shipping\s*(?:method|details)?|product|product\s*name|qty|quantity|item|items|note|notes|delivery|address\s*details|order\s*details|ঠিকানা|billing|package|completed|edit|sub\s*total|total|shipping\s*cost|tax)/i;
+const labelRe = /^(?:phone|phone\s*no\.?|মোবাইল|মোবাইল\s*নাম্বার|payment|payment\s*(?:via|method)?|shipping|shipping\s*(?:method|details)?|product|product\s*name|qty|quantity|item|items|note|notes|delivery|address\s*details|order\s*#\s*\d+|order\s*details|ঠিকানা|billing|package|completed|edit|sub\s*total|total|shipping\s*cost|tax)/i;
 
 /** A line that is just a quantity with a unit (no price). "3KG", "1 kg", "5 পিস". */
 const QTY_ONLY_RE = /^\s*\d+(?:\.\d+)?\s*(kg|কেজি|pcs|pc|পিস|piece|pieces|টুকরা)\s*$/i;
@@ -211,6 +213,12 @@ function findSource(text: string): OrderSource | null {
   // "এসএমএস".
   if (/^\s*(?:\[\s*sms\s*\]|sms\s*[:\-]|এসএমএস)/iu.test(lower)) return "phone";
 
+  // WordPress / WooCommerce — admin copy/paste starts with "Order #12345"
+  // and contains WP-only labels ("Billing details", "Shipping method",
+  // "Package:"). The order-number pattern alone is a strong enough signal
+  // to flip the source to "wordpress".
+  if (ORDER_NO_RE.test(text)) return "wordpress";
+
   return null;
 }
 
@@ -245,6 +253,21 @@ function findTotal(text: string): number | null {
   return total;
 }
 
+/**
+ * Extract an external order number from paste text. Looks for the
+ * WooCommerce-style "Order #12345" pattern (case-insensitive, allows
+ * spaces / no-space) — strong signal of a WP admin copy/paste. Returns
+ * the digits only, or "" when nothing matches.
+ *
+ * Examples that match: "Order #30352", "Order#30352", "order # 30352".
+ * Examples that DON'T match: "My order is 3kg" (no "#").
+ */
+const ORDER_NO_RE = /^\s*order\s*#\s*(\d{2,12})\b/im;
+function findOrderNo(text: string): string {
+  const m = text.match(ORDER_NO_RE);
+  return m ? m[1] : "";
+}
+
 interface RawParsedItem {
   qty: number;
   unit: "kg" | "pcs";
@@ -255,21 +278,28 @@ interface RawParsedItem {
 }
 
 /**
- * A "noise" line that should be skipped when searching for the product name
- * above a qty/qty×price line. Examples from real Facebook/WhatsApp order
- * pastes: "M10k", "SKU001", "A2", "X1". These are short ASCII-only tokens
- * with mixed letters+digits (or just one) that aren't a real product name.
+ * Detect a "noise" line that should be skipped when searching for the product
+ * name above a qty/qty×price line. Examples from real Facebook/WhatsApp /
+ * WooCommerce order pastes: "M10k", "SKU001", "A2", "X1", "HM - 3", "HM-3".
+ * These are short ASCII-only tokens containing BOTH letters and digits (often
+ * with spaces / dashes between them) — not a real product name.
  *
- * Bangla product headers like "🐐 দেশি ছাগলের মাংস" are always longer than
- * 8 chars and contain non-ASCII characters, so they never trip this.
+ * Bangla product headers like "🐐 দেশি ছাগলের মাংস" always contain non-ASCII
+ * characters and are far longer than 10 chars, so they never trip this.
  */
-const SHORT_CODE_RE = /^[A-Za-z0-9]{1,8}$/;
+function isShortCodeLine(ln: string): boolean {
+  const t = ln.trim();
+  if (t.length < 2 || t.length > 12) return false;
+  if (/[^\x00-\x7F]/.test(t)) return false;            // has non-ASCII (Bengali/emoji)
+  if (!/^[A-Za-z0-9][A-Za-z0-9\s\-._]*$/.test(t)) return false;  // alphanum + common separators
+  return /[A-Za-z]/.test(t) && /[0-9]/.test(t);        // must mix letters AND digits
+}
 
 /**
  * Walk backwards from `atLine` looking for the real product-name line. Skips
  * labels ("Package:", "Completed:"…), qty-only lines ("3KG"), qty×price lines,
- * price-only lines, short SKU/code tokens ("M10k"), and blanks. Returns the
- * trimmed candidate or "".
+ * price-only lines, short SKU/code tokens ("M10k", "HM - 3"), and blanks.
+ * Returns the trimmed candidate or "".
  */
 function findNameAbove(lines: string[], atLine: number): string {
   for (let j = atLine - 1; j >= 0; j--) {
@@ -279,7 +309,7 @@ function findNameAbove(lines: string[], atLine: number): string {
     if (looksLikeQtyTimesPriceLine(prev)) continue;
     if (looksLikePriceLine(prev) && /^\d/.test(prev)) continue;
     if (QTY_ONLY_RE.test(prev)) continue;
-    if (SHORT_CODE_RE.test(prev.trim())) continue;
+    if (isShortCodeLine(prev)) continue;
     return prev;
   }
   return "";
@@ -588,6 +618,7 @@ export function parseOrderFromText(input: ParseInput): ParsedOrder {
     items: [],
     note: "",
     totalHint: null,
+    orderNo: "",
     source: "manual",
     computedTotal: 0,
     confidence: {
@@ -675,6 +706,11 @@ export function parseOrderFromText(input: ParseInput): ParsedOrder {
 
   // ── 7. Total hint (largest ৳-suffixed number)
   result.totalHint = findTotal(text);
+
+  // ── 7b. External order number (e.g. WooCommerce "Order #30352"). The
+  //       source was already auto-set to "wordpress" when this matched, so
+  //       the number is the canonical cross-reference for status syncing.
+  result.orderNo = findOrderNo(text);
 
   // ── 8. Computed total (items × qty + delivery if shipping detected)
   const deliveryFee = result.shippingMode === "inside_dhaka" ? 100 : result.shippingMode === "outside_dhaka" ? 150 : 0;

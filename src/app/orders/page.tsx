@@ -3,7 +3,7 @@
 import { Suspense, useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus, Search, Printer, Check, X, Trash2, Truck, Inbox, FileSpreadsheet, FileText, Map, Bike, Compass } from "lucide-react";
+import { Plus, Search, Printer, Check, X, Trash2, Truck, Inbox, FileSpreadsheet, FileText, Map, Bike, Compass, Download, Calendar } from "lucide-react";
 import type { Order, Product, Customer, Settings, OrderStatus, Rider } from "@/lib/types";
 import { STATUS_LABELS, formatMoney, SOURCE_LABELS, SOURCE_COLORS, PAYMENT_LABELS, bdParts, ALL_CLUSTERS, CLUSTER_COLORS, CLUSTER_SHORT, CLUSTER_LABELS } from "@/lib/ui";
 import { StatusBadge } from "@/components/status-badge";
@@ -53,6 +53,13 @@ function OrdersPageContent() {
   const [bulkMsg, setBulkMsg] = useState("");
   const [showBulkCancel, setShowBulkCancel] = useState(false);
   const [showPlanRoutePicker, setShowPlanRoutePicker] = useState(false);
+  const [todayOnly, setTodayOnly] = useState(false);
+
+  // BD-local (UTC+6) "today" as YYYY-MM-DD. Used for the Today filter pill.
+  const todayDateStr = useMemo(() => {
+    const bd = new Date(new Date().getTime() + 6 * 60 * 60 * 1000);
+    return bd.toISOString().slice(0, 10);
+  }, []);
 
   // Live count of pending-approval orders (for the approval-queue badge).
   const pendingCount = useMemo(
@@ -88,16 +95,29 @@ function OrdersPageContent() {
   }, [load]);
 
   useEffect(() => {
+    // `?today=1` — auto-toggle the Today filter when the URL says so.
+    // Lets the header's "Today" shortcut (and any bookmarked link) jump
+    // straight into the today view.
+    if (searchParams.get("today") === "1" && !todayOnly) {
+      setTodayOnly(true);
+    }
+
     const s = searchParams.get("status");
     if (s && FILTERS.includes(s as OrderStatus | "all")) {
       setFilter(s as OrderStatus | "all");
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
   const filtered = useMemo(() => {
     const list = orders.filter((o) => {
       // pending-approval orders live at /orders/approval — never mixed here.
       if (o.status === "pending-approval") return false;
+      // "Today" pill — show every order scheduled for today, regardless of
+      // status. Includes new / preparing / out-for-delivery as well as
+      // delivered / cancelled / returned so ops always sees the full day's
+      // queue in one view.
+      if (todayOnly && o.date !== todayDateStr) return false;
       if (filter !== "all" && o.status !== filter) return false;
       if (clusterFilter !== "all" && o.cluster !== clusterFilter) return false;
       if (query) {
@@ -120,7 +140,16 @@ function OrdersPageContent() {
       });
     }
     return list;
-  }, [orders, filter, clusterFilter, query]);
+  }, [orders, filter, clusterFilter, query, todayOnly, todayDateStr]);
+
+  const todayCount = useMemo(
+    () =>
+      orders.filter((o) => {
+        if (o.status === "pending-approval") return false;
+        return o.date === todayDateStr;
+      }).length,
+    [orders, todayDateStr]
+  );
 
   // Totals row aggregates for the tfoot
   const totalsKg = filtered.reduce(
@@ -288,8 +317,31 @@ function OrdersPageContent() {
     if (ids.length === 0) return;
     // Open a single consolidated batch print page in a new tab — rider
     // gets one sheet with all selected orders, each with its own signature
-    // block, plus a batch total at the bottom.
+    // block, plus a batch total at the bottom. Auto-prints on load.
     window.open(`/orders/print-batch?ids=${ids.join(",")}`, "_blank");
+  };
+
+  const downloadTodayDelivered = () => {
+    // Main report = ALL orders scheduled for today (BD date), any status
+    // (new / confirmed / preparing / out-for-delivery / delivered / cancelled
+    // / returned). Matches the in-page "Today" filter so the print-out is
+    // the full day's queue, not just the delivered subset.
+    const allTodayIds = orders
+      .filter(
+        (o) => o.date === todayDateStr && o.status !== "pending-approval"
+      )
+      .map((o) => o.id);
+    if (allTodayIds.length === 0) {
+      alert(`No orders found for today (${todayDateStr}).`);
+      return;
+    }
+    const params = new URLSearchParams({
+      ids: allTodayIds.join(","),
+      autoprint: "0",
+      view: "list",
+      today: todayDateStr,
+    });
+    window.open(`/orders/print-batch?${params.toString()}`, "_blank");
   };
 
   if (loading) {
@@ -436,6 +488,62 @@ function OrdersPageContent() {
               {CLUSTER_SHORT[c]}
             </button>
           ))}
+          {/* Today toggle — show only orders scheduled for today (any status) */}
+          <div style={{ width: 1, height: 22, background: "var(--border)", margin: "0 4px" }} />
+          <button
+            onClick={() => setTodayOnly((v) => !v)}
+            className="btn"
+            title={`Show all orders scheduled for today (${todayDateStr}) — includes cancelled & returned`}
+            style={{
+              fontSize: 12,
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              background: todayOnly ? "rgba(245, 158, 11, 0.18)" : "var(--bg-card)",
+              color: todayOnly ? "var(--accent-amber)" : "var(--text-secondary)",
+              border: `1px solid ${todayOnly ? "rgba(245, 158, 11, 0.5)" : "var(--border)"}`,
+            }}
+          >
+            <Calendar size={12} />
+            Today
+            {todayCount > 0 && (
+              <span
+                style={{
+                  marginLeft: 2,
+                  background: todayOnly ? "var(--accent-amber)" : "var(--bg-hover)",
+                  color: todayOnly ? "white" : "var(--text-muted)",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: "0 6px",
+                  borderRadius: 999,
+                  minWidth: 18,
+                  textAlign: "center",
+                }}
+              >
+                {todayCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={downloadTodayDelivered}
+            disabled={todayCount === 0}
+            className="btn"
+            title={`Download a combined PDF of all ${todayCount} orders scheduled for today (any status)`}
+            style={{
+              fontSize: 12,
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              background: todayCount > 0 ? "rgba(77,158,71,0.18)" : "var(--bg-card)",
+              color: todayCount > 0 ? "var(--accent-green)" : "var(--text-muted)",
+              border: `1px solid ${todayCount > 0 ? "rgba(77,158,71,0.5)" : "var(--border)"}`,
+              cursor: todayCount > 0 ? "pointer" : "not-allowed",
+              opacity: todayCount === 0 ? 0.6 : 1,
+            }}
+          >
+            <Download size={12} />
+            Download Today
+          </button>
         </div>
         <div style={{ position: "relative", width: 240 }}>
           <Search size={14} style={{ position: "absolute", left: 10, top: 10, color: "var(--text-muted)" }} />
