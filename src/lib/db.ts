@@ -1213,8 +1213,8 @@ export interface NewOrderInput {
    */
   orderNo?: string;
   /** Reserved. Stock is no longer deducted at create time — every order
-   *  stays at `stockDeducted=false` until it transitions to "delivered".
-   *  Kept on the signature so existing callers (webhooks) keep compiling. */
+* stays at `stockDeducted=false` until it transitions to "out-for-delivery".
+   * Kept on the signature so existing callers (webhooks) keep compiling. */
   skipStockDeduction?: boolean;
   /** Override initial status. Default `"new"`. Webhook passes `"pending-approval"`. */
   initialStatus?: OrderStatus;
@@ -1685,12 +1685,12 @@ export function setOrderStatus(
   }
 
   // Stock moves are gated on `stockDeducted`. With the current model:
-  //   - createOrder never deducts stock (inventory is held until delivery).
-  //   - the very first transition into "delivered" deducts stock and flips
-  //     stockDeducted to true (idempotent — already-delivered orders won't
-  //     double-deduct thanks to the canMove-backwards guard above).
+  //   - createOrder never deducts stock (inventory is held until dispatch).
+  //   - the very first transition into "out-for-delivery" deducts stock
+  //     and flips stockDeducted to true (idempotent — already-dispatched
+  //     orders won't double-deduct thanks to the canMove-backwards guards).
   //   - cancellations only return stock that was previously deducted; orders
-  //     cancelled before delivery (stockDeducted=false) leave inventory alone.
+  //     cancelled before dispatch (stockDeducted=false) leave inventory alone.
   //   - un-cancelling a previously-cancelled order re-deducts only if stock
   //     had been taken away, then returned, before cancel.
   //   - returns (delivered → returned) restore stock since the goods came
@@ -1702,13 +1702,15 @@ export function setOrderStatus(
   if (status !== "cancelled" && order.status === "cancelled" && order.stockDeducted) {
     applyOrderToStock(order, 1);
   }
-  const willDeductOnDelivery =
-    status === "delivered" && order.status !== "delivered" && !order.stockDeducted;
-  if (willDeductOnDelivery) {
+  const willDeductOnDispatch =
+    status === "out-for-delivery" &&
+    order.status !== "out-for-delivery" &&
+    !order.stockDeducted;
+  if (willDeductOnDispatch) {
     applyOrderToStock(order, 1);
   }
   const willRestoreOnReturn =
-    status === "returned" && order.status === "delivered" && order.stockDeducted;
+    status === "returned" && order.stockDeducted;
   if (willRestoreOnReturn) {
     applyOrderToStock(order, -1);
   }
@@ -1773,7 +1775,7 @@ export function setOrderStatus(
     returnedAt,
     returnReason,
     paid,
-    willDeductOnDelivery ? 1 : (willRestoreOnReturn ? 0 : (order.stockDeducted ? 1 : 0)),
+    willDeductOnDispatch ? 1 : (willRestoreOnReturn ? 0 : (order.stockDeducted ? 1 : 0)),
     now,
     id
   );

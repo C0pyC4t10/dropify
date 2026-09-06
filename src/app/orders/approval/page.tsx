@@ -209,8 +209,9 @@ export default function ApprovalQueuePage() {
             </span>
           </h1>
           <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--text-muted)" }}>
-            WP orders land here automatically. Approving deducts stock and moves the
-            order to the live list. Cancelling leaves stock untouched.
+            WP orders land here automatically. Approving moves the order to the
+            live list (stock deducts when status flips to <b>out-for-delivery</b>).
+            Cancelling leaves stock untouched.
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
