@@ -623,6 +623,16 @@ label {
 .live-clock__colon--dim {
   color: rgba(77, 158, 71, 0.55);
 }
+.live-clock__ampm {
+  display: inline-block;
+  margin-left: 4px;
+  color: var(--accent-green);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  align-self: flex-end;
+  padding-bottom: 1px;
+}
 @keyframes live-clock-blink {
   0%,
   50% {

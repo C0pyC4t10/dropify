@@ -650,7 +650,7 @@ function ManifestContent() {
         </div>
 
         <div style={{ textAlign: "center", marginTop: 24, fontSize: 11, color: "#666" }}>
-          Generated {new Date().toLocaleString("en-GB")} · Bazarey Meat Delivery Ops
+          Generated {new Date().toLocaleString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: true })} · Bazarey Meat Delivery Ops
         </div>
       </div>
     </div>

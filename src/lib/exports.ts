@@ -226,7 +226,7 @@ export function exportPDF<T>(
   const tagline = opts.tagline || "";
   const stamp = new Date().toLocaleString("en-GB", {
     year: "numeric", month: "short", day: "2-digit",
-    hour: "2-digit", minute: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: true,
   });
   const brandInitials = businessName
     .split(/\s+/)

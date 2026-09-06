@@ -195,7 +195,7 @@ function PrintContent() {
         </div>
 
         <div style={{ textAlign: "center", marginTop: 16, fontSize: 10, color: "#666" }}>
-          Generated {new Date().toLocaleString("en-GB")} · {distanceLabel(totalDistance)} · {etaLabel(totalSeconds)}
+          Generated {new Date().toLocaleString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: true })} · {distanceLabel(totalDistance)} · {etaLabel(totalSeconds)}
         </div>
       </div>
 

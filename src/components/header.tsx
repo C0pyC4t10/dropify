@@ -79,7 +79,10 @@ function LiveClock() {
     );
   }
 
-  const hh = pad(now.getHours());
+  // 12-hour clock: 0 (midnight) and 12 (noon) both show as "12".
+  const rawHour = now.getHours();
+  const hh12 = pad(((rawHour + 11) % 12) + 1);
+  const ampm = rawHour < 12 ? "AM" : "PM";
   const mm = pad(now.getMinutes());
   const ss = pad(now.getSeconds());
   const date = now.toLocaleDateString("en-GB", {
@@ -92,7 +95,7 @@ function LiveClock() {
   const sweepDeg = (now.getMilliseconds() / 1000) * 360;
 
   return (
-    <div className="live-clock" aria-label={`Current time ${hh}:${mm}:${ss}, ${date}`}>
+    <div className="live-clock" aria-label={`Current time ${hh12}:${mm}:${ss} ${ampm}, ${date}`}>
       <span
         className="live-clock__ring"
         style={{ "--sweep": `${sweepDeg}deg` } as React.CSSProperties}
@@ -101,11 +104,12 @@ function LiveClock() {
       </span>
       <div className="live-clock__text">
         <div className="live-clock__time">
-          <span className="live-clock__hhmm">{hh}</span>
+          <span className="live-clock__hhmm">{hh12}</span>
           <span className="live-clock__colon">:</span>
           <span className="live-clock__hhmm">{mm}</span>
           <span className="live-clock__colon live-clock__colon--dim">:</span>
           <span className="live-clock__sec">{ss}</span>
+          <span className="live-clock__ampm">{ampm}</span>
         </div>
         <div className="live-clock__date">
           <span>{date}</span>

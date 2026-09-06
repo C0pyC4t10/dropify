@@ -24,7 +24,7 @@ export function downloadPrepListPDF(
   const totalsPcs = rows.reduce((s, r) => s + r.totalPcs, 0);
   const stamp = new Date().toLocaleString("en-GB", {
     year: "numeric", month: "short", day: "2-digit",
-    hour: "2-digit", minute: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: true,
   });
   const brandInitials = brandLabel
     .split(/\s+/)
