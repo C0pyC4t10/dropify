@@ -12,6 +12,7 @@ import {
   RefreshCw,
   AlertTriangle,
   Zap,
+  Trash2,
 } from "lucide-react";
 import type { Order, Product } from "@/lib/types";
 import { formatMoney, ALL_CLUSTERS, CLUSTER_COLORS, CLUSTER_SHORT, CLUSTER_LABELS } from "@/lib/ui";
@@ -25,6 +26,7 @@ export default function ApprovalQueuePage() {
   const [busy, setBusy] = useState<number | null>(null);
   const [banner, setBanner] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [cancelFor, setCancelFor] = useState<Order | null>(null);
+  const [deleteFor, setDeleteFor] = useState<Order | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -129,6 +131,25 @@ export default function ApprovalQueuePage() {
       } else {
         flash("ok", `Cancelled #${id}`);
         setCancelFor(null);
+        await load();
+      }
+    } catch (e) {
+      flash("err", String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const remove = async (id: number) => {
+    setBusy(id);
+    try {
+      const res = await fetch(`/api/orders/${id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        flash("err", data.error || `Delete failed (HTTP ${res.status})`);
+      } else {
+        flash("ok", `Deleted order #${id}`);
+        setDeleteFor(null);
         await load();
       }
     } catch (e) {
@@ -424,6 +445,21 @@ export default function ApprovalQueuePage() {
                       >
                         <X size={13} /> Cancel
                       </button>
+                      <button
+                        className="btn btn-danger"
+                        disabled={busy === o.id}
+                        onClick={() => setDeleteFor(o)}
+                        title="Permanently delete this order"
+                        style={{
+                          fontSize: 12,
+                          padding: "6px 10px",
+                          background: "transparent",
+                          border: "1px solid var(--border)",
+                          color: "var(--text-muted)",
+                        }}
+                      >
+                        <Trash2 size={13} />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -439,6 +475,15 @@ export default function ApprovalQueuePage() {
           busy={busy === cancelFor.id}
           onClose={() => setCancelFor(null)}
           onConfirm={(reason) => cancel(cancelFor.id, reason)}
+        />
+      )}
+
+      {deleteFor && (
+        <DeleteConfirmModal
+          order={deleteFor}
+          busy={busy === deleteFor.id}
+          onClose={() => setDeleteFor(null)}
+          onConfirm={() => remove(deleteFor.id)}
         />
       )}
     </div>
@@ -495,6 +540,53 @@ function CancelReasonModal({
           </button>
           <button className="btn btn-danger" onClick={submit} disabled={busy}>
             {busy ? "Cancelling…" : "Cancel Order"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeleteConfirmModal({
+  order,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  order: Order;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal-content"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: 460 }}
+      >
+        <h2 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 12px", color: "var(--accent-red)" }}>
+          Delete {order.orderNo}?
+        </h2>
+        <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 8px" }}>
+          This will <b>permanently remove</b> the order from the system. It cannot
+          be undone and the order will not appear in any reports.
+        </p>
+        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 14px" }}>
+          If you only want to mark it as cancelled (keeps an audit trail), use{" "}
+          <b>Cancel</b> instead.
+        </p>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button className="btn btn-secondary" onClick={onClose} disabled={busy}>
+            Keep
+          </button>
+          <button
+            className="btn btn-danger"
+            onClick={onConfirm}
+            disabled={busy}
+            style={{ background: "var(--accent-red)" }}
+          >
+            <Trash2 size={13} /> {busy ? "Deleting…" : "Delete permanently"}
           </button>
         </div>
       </div>

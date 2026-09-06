@@ -661,10 +661,15 @@ function isToday(dateStr: string): boolean {
 }
 
 function nextOrderNo(db: Database.Database): string {
+  // Order number format: MD-{BD-date}-{seq}. BD date so the prefix matches
+  // the operator's local day even when the server clock is UTC. Seq is the
+  // global order id (4-digit, zero-padded) so legacy MD-2026-NNNN orders
+  // are still ordered correctly.
   const now = new Date();
-  const y = now.getFullYear();
+  const bd = new Date(now.getTime() + 6 * 60 * 60 * 1000);
+  const datePart = bd.toISOString().slice(0, 10);
   const seq = String(nextId(db, "orders")).padStart(4, "0");
-  return `MD-${y}-${seq}`;
+  return `MD-${datePart}-${seq}`;
 }
 
 function nextId(db: Database.Database, name: string): number {

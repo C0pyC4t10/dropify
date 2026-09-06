@@ -46,6 +46,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "Phone required", parsed }, { status: 400 });
     }
 
+    // BD-local date used for the MD-{date}-{N} prefix on WP order numbers.
+    const bd = new Date(Date.now() + 6 * 60 * 60 * 1000);
+    const orderDate = bd.toISOString().slice(0, 10);
+
     // Filter out empty / qty-zero items. Accept either `productId` or
     // `matchedProductId` so client mistakes don't silently drop rows.
     type _ParsedInput = {
@@ -104,18 +108,17 @@ export async function POST(request: Request) {
       source: parsed.source || "manual",
       deliveryMode: "own",
       note: parsed.note || "",
-      // For WordPress/WooCommerce orders the pasted "Order #12345" becomes
-      // the primary orderNo shown on the list / detail / invoice. The same
-      // value is also stored in wpOrderId so the existing WP status-sync
-      // code keeps working. For other sources the auto-generated MD-{year}-
-      // {seq} is used and wpOrderId stays empty — old behaviour.
+      // Display orderNo uses the MD-{date}-{N} format so list / invoice /
+      // approval all read "MD-2026-09-06-30357" instead of bare "30357".
+      // wpOrderId keeps the raw WooCommerce id (no MD prefix) so the
+      // outbound status-sync to WP keeps matching the id WP knows about.
       wpOrderId:
         (parsed.source || "manual") === "wordpress"
           ? (parsed.orderNo || "").trim()
           : "",
       orderNo:
         (parsed.source || "manual") === "wordpress" && (parsed.orderNo || "").trim()
-          ? (parsed.orderNo || "").trim()
+          ? `MD-${orderDate}-${parsed.orderNo.trim()}`
           : undefined,
       skipStockDeduction: true,
       initialStatus: "pending-approval",
