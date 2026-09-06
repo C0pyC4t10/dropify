@@ -174,11 +174,14 @@ function PrintBatchPage() {
     );
   }
 
+  // Grand-total row on the card view: "Value" is the sum of paid amounts
+  // for orders with cash in hand right now (delivered; cancelled and
+  // returned are excluded — see ListViewTable cashCollected logic above).
   const totalAll = orders
-    .filter((o) => o.status !== "cancelled")
-    .reduce((s, o) => s + o.total, 0);
+    .filter((o) => o.status !== "cancelled" && o.status !== "returned")
+    .reduce((s, o) => s + o.paid, 0);
   const paidAll = orders
-    .filter((o) => o.status !== "cancelled")
+    .filter((o) => o.status !== "cancelled" && o.status !== "returned")
     .reduce((s, o) => s + o.paid, 0);
   const dueAll = orders
     .filter((o) => o.status !== "cancelled")
@@ -383,6 +386,18 @@ function PrintBatchPage() {
           .orders-table .amount { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--text); }
           .orders-table .taka { color: #15803d; font-weight: 700; margin-right: 2px; }
           .orders-table .phone { color: var(--muted); font-size: 9.5px; font-weight: 500; margin-top: 1px; }
+          .orders-table .items {
+            font-size: 10px;
+            color: var(--text-secondary);
+            font-weight: 600;
+            margin-top: 3px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            line-height: 1.2;
+          }
           .orders-table .reason {
             font-size: 9px;
             color: var(--text-muted);
@@ -821,15 +836,30 @@ function ListViewTable({
       ? riders.find((r) => r.id === o.riderId)?.name ?? `#${o.riderId}`
       : "—";
 
-  // Cash Collected = total of every order EXCEPT cancelled. Cancelled orders
-  // never produced revenue, so their totals must be deducted from the
-  // daily cash figure even though they still appear in the orders table.
-  const totalAll = tableOrders
-    .filter((o) => o.status !== "cancelled")
-    .reduce((s, o) => s + o.total, 0);
-  const cancelledTotal = tableOrders
-    .filter((o) => o.status === "cancelled")
-    .reduce((s, o) => s + o.total, 0);
+  // Cash Collected = sum of `paid` for orders that actually have cash in hand
+  // right now. We use `paid` (not `total`) because in-transit / preparing /
+// new orders have a `total` but `paid` is still 0 — their cash hasn't
+// actually been collected by the rider yet. We also exclude `returned`
+// because the system's `paid` field doesn't auto-reconcile refunds (refund
+// handling is out of band), so adding it back would double-count cash that
+// has physically come back to the customer.
+const cashCollected = tableOrders
+  .filter((o) => o.status !== "cancelled" && o.status !== "returned")
+  .reduce((s, o) => s + o.paid, 0);
+const inTransitTotal = tableOrders
+  .filter((o) =>
+    o.status === "new" ||
+    o.status === "confirmed" ||
+    o.status === "preparing" ||
+    o.status === "out-for-delivery"
+  )
+  .reduce((s, o) => s + o.total, 0);
+const returnedTotal = tableOrders
+  .filter((o) => o.status === "returned")
+  .reduce((s, o) => s + o.paid, 0);
+const cancelledTotal = tableOrders
+  .filter((o) => o.status === "cancelled")
+  .reduce((s, o) => s + o.total, 0);
 
   // Status counts for today — each status counted by its OWN timestamp's BD date.
   // Delivered & confirmed: count even if scheduled for a previous day (catches
@@ -910,18 +940,31 @@ function ListViewTable({
           <div className="bn">মোট সংগৃহীত</div>
           <div className="value" style={{ display: "flex", alignItems: "baseline", justifyContent: "flex-end", gap: 2 }}>
             <span style={{ fontSize: 14, color: "var(--muted)", fontWeight: 700 }}>৳</span>
-            <span>{totalAll.toLocaleString("en-IN")}</span>
+            <span>{cashCollected.toLocaleString("en-IN")}</span>
           </div>
-          {cancelledTotal > 0 && (
+          {(inTransitTotal > 0 || returnedTotal > 0 || cancelledTotal > 0) && (
             <div
               style={{
                 fontSize: 9,
                 marginTop: 2,
-                color: "var(--accent-red)",
+                color: "var(--text-muted)",
                 fontWeight: 600,
+                lineHeight: 1.3,
               }}
             >
-              −৳{cancelledTotal.toLocaleString("en-IN")} cancelled
+              {inTransitTotal > 0 && (
+                <div>৳{inTransitTotal.toLocaleString("en-IN")} pending dispatch</div>
+              )}
+              {returnedTotal > 0 && (
+                <div style={{ color: "#b45309" }}>
+                  ৳{returnedTotal.toLocaleString("en-IN")} returned (refund unreconciled)
+                </div>
+              )}
+              {cancelledTotal > 0 && (
+                <div style={{ color: "var(--accent-red)" }}>
+                  ৳{cancelledTotal.toLocaleString("en-IN")} cancelled
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1005,6 +1048,18 @@ function ListViewTable({
                 <div style={{ fontWeight: 700 }}>{o.customerName}</div>
                 {o.customerPhone && (
                   <div className="phone">{o.customerPhone}</div>
+                )}
+                {o.items.length > 0 && (
+                  <div
+                    className="items"
+                    title={o.items
+                      .map((it) => `${it.qty}${it.unit === "pcs" ? "pc" : "kg"} ${it.nameBn || it.name}`)
+                      .join(" · ")}
+                  >
+                    {o.items
+                      .map((it) => `${it.qty}${it.unit === "pcs" ? "pc" : "kg"} ${it.nameBn || it.name}`)
+                      .join(" · ")}
+                  </div>
                 )}
               </td>
               <td>{o.area || "—"}</td>
