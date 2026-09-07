@@ -35,7 +35,7 @@ export async function POST(request: Request) {
         nameBn: p.nameBn,
         sku: p.sku,
         sellPrice: p.sellPrice,
-        unit: p.unit,
+        unit: p.unitCode,
       }));
       parsed = parseOrderFromText({ text: body.text, products }, { isBanglaEnabled });
     }

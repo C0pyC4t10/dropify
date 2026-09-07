@@ -25,7 +25,7 @@ export const BKASH_NUMBER = "01932367356";
 /** Same number in international format. */
 export const BKASH_NUMBER_INTL = "+8801932367356";
 /** Shop name shown on the QR label (capped at 13 chars per EMVCo 5913). */
-export const BKASH_MERCHANT_NAME = "Bazarey Meat";
+export const BKASH_MERCHANT_NAME = "";
 
 /** CRC16-CCITT (polynomial 0x1021, init 0xFFFF) — required for EMVCo. */
 function crc16ccitt(data: string): string {

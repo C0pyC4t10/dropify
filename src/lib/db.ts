@@ -7,6 +7,7 @@ import { getLocationForArea } from "./locations";
 import { haversineMeters } from "./geo";
 import { geocodeAddress } from "./geocode";
 import type {
+  Category,
   Company,
   Customer,
   DeliveryMode,
@@ -18,7 +19,6 @@ import type {
   OrderStatus,
   PaymentMethod,
   Product,
-  ProductCategory,
   PurchaseOrder,
   PurchaseOrderItem,
   PurchaseOrderStatus,
@@ -67,6 +67,28 @@ CREATE TABLE IF NOT EXISTS companies (
   createdAt TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS categories (
+  id INTEGER PRIMARY KEY,
+  companyId INTEGER NOT NULL,
+  slug TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  sortOrder INTEGER NOT NULL DEFAULT 0,
+  isActive INTEGER NOT NULL DEFAULT 1,
+  createdAt TEXT NOT NULL,
+  UNIQUE(companyId, slug)
+);
+
+CREATE TABLE IF NOT EXISTS units (
+  id INTEGER PRIMARY KEY,
+  companyId INTEGER NOT NULL,
+  code TEXT NOT NULL,
+  name TEXT NOT NULL,
+  isActive INTEGER NOT NULL DEFAULT 1,
+  createdAt TEXT NOT NULL,
+  UNIQUE(companyId, code)
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   id INTEGER PRIMARY KEY,
   data TEXT NOT NULL
@@ -77,8 +99,8 @@ CREATE TABLE IF NOT EXISTS products (
   sku TEXT NOT NULL,
   name TEXT NOT NULL,
   nameBn TEXT NOT NULL DEFAULT '',
-  category TEXT NOT NULL,
-  unit TEXT NOT NULL DEFAULT 'kg',
+  category TEXT NOT NULL DEFAULT '',
+  unit TEXT NOT NULL DEFAULT 'pcs',
   costPrice REAL NOT NULL DEFAULT 0,
   sellPrice REAL NOT NULL DEFAULT 0,
   marketPrice REAL NOT NULL DEFAULT 0,
@@ -321,6 +343,21 @@ function initSchema(db: Database.Database): void {
   ensureSettingsReshape(db);
   ensureSeedCompaniesAndSettings(db);
 
+  // ── Categories + Units (Dropify multi-tenant upgrade) ──
+  // First-class per-tenant catalog taxonomies. After this block:
+  //   - categories table exists with rows seeded for every active company
+  //     (meat gets the 5 standard meat categories; non-meat tenants start
+  //      with a blank slate they populate via /admin/categories)
+  //   - units table exists with rows for every active company (kg / pcs)
+  //   - products.category TEXT → products.categoryId INTEGER (FK)
+  //   - products.unit TEXT → products.unitId INTEGER (FK)
+  ensureCategoriesTable(db);
+  ensureUnitsTable(db);
+  ensureCategoriesIndex(db);
+  ensureUnitsIndex(db);
+  ensureProductCategoryAndUnitFKs(db);
+  seedCategoriesAndUnitsForActiveCompanies(db);
+
   // One-time backfill of lat/lng for legacy orders + customers whose rows
   // predate the routing columns. We pull the centroid from the seeded
   // area_centroids table; orders/customers with an unrecognized area get the
@@ -416,7 +453,7 @@ function initSchema(db: Database.Database): void {
   if (settingsCount === 0) {
     const defaults: Settings = {
       id: 1,
-      businessName: "Bazarey Ltd",
+      businessName: "",
       tagline: "Fresh meat, doorstep delivery",
       phone: "01XXXXXXXXX",
       address: "Aftabnagar, Dhaka, Bangladesh",
@@ -622,6 +659,225 @@ function makeCompanyDefaults(name: string, tagline: string): Settings {
 }
 
 
+// ── Categories + Units migrations ─────────────────────────────────────────
+//
+// Dropify promotes `products.category TEXT` (a meat-shaped enum) and
+// `products.unit TEXT` (kg/pcs enum) into first-class per-tenant tables.
+// This is the meat-aware data → category-aware data upgrade. After these
+// migrations run, every active tenant has:
+//   - a `categories` table populated with sensible defaults
+//   - a `units` table with kg / pcs
+//   - products linked to those via integer FK columns
+//
+// Non-meat tenants start with empty categories — they populate via
+// /admin/categories. The meat company keeps its 5 meat categories as
+// backward-compat.
+
+const MEAT_CATEGORY_SEED: Array<{ slug: string; name: string; sortOrder: number }> = [
+  { slug: "beef",    name: "Beef",    sortOrder: 1 },
+  { slug: "chicken", name: "Chicken", sortOrder: 2 },
+  { slug: "mutton",  name: "Mutton",  sortOrder: 3 },
+  { slug: "offal",   name: "Offal",   sortOrder: 4 },
+  { slug: "fish",    name: "Fish",    sortOrder: 5 },
+];
+
+const DEFAULT_UNIT_SEED: Array<{ code: string; name: string; sortOrder: number }> = [
+  { code: "kg",  name: "Kilogram", sortOrder: 1 },
+  { code: "pcs", name: "Piece",    sortOrder: 2 },
+];
+
+function ensureCategoriesTable(_db: Database.Database): void {
+  /* created in SCHEMA above; this is a placeholder for future DDL changes */
+}
+
+function ensureUnitsTable(_db: Database.Database): void {
+  /* created in SCHEMA above */
+}
+
+function ensureCategoriesIndex(db: Database.Database): void {
+  db.exec("CREATE INDEX IF NOT EXISTS idx_categories_company ON categories(companyId, isActive, sortOrder)");
+}
+
+function ensureUnitsIndex(db: Database.Database): void {
+  db.exec("CREATE INDEX IF NOT EXISTS idx_units_company ON units(companyId, isActive)");
+}
+
+/**
+ * Add `categoryId` / `unitId` integer FK columns to products if missing,
+ * then backfill them from the legacy TEXT columns. The TEXT columns are
+ * kept for read-path fallback (legacy code paths can still see them);
+ * new writes populate both.
+ */
+function ensureProductCategoryAndUnitFKs(db: Database.Database): void {
+  const cols = (db.prepare("PRAGMA table_info(products)").all() as Array<{ name: string }>).map(
+    (c) => c.name
+  );
+  if (!cols.includes("categoryId")) {
+    db.exec("ALTER TABLE products ADD COLUMN categoryId INTEGER");
+  }
+  if (!cols.includes("unitId")) {
+    db.exec("ALTER TABLE products ADD COLUMN unitId INTEGER");
+  }
+
+  // Seed default categories + units for any tenant that doesn't yet have
+  // them — needed before we can backfill products.categoryId / unitId.
+  const companiesWithoutCats = db
+    .prepare("SELECT id FROM companies WHERE isActive = 1 AND id NOT IN (SELECT DISTINCT companyId FROM categories)")
+    .all() as Array<{ id: number }>;
+  if (companiesWithoutCats.length > 0) {
+    const insertCat = db.prepare(
+      `INSERT INTO categories (id, companyId, slug, name, description, sortOrder, isActive, createdAt)
+       VALUES (?, ?, ?, ?, '', ?, 1, ?)`
+    );
+    const insertUnit = db.prepare(
+      `INSERT INTO units (id, companyId, code, name, isActive, createdAt)
+       VALUES (?, ?, ?, ?, 1, ?)`
+    );
+    const now = new Date().toISOString();
+    for (const { id: companyId } of companiesWithoutCats) {
+      const cats = companyId === 1 ? MEAT_CATEGORY_SEED : []; // meat only
+      for (const c of cats) {
+        insertCat.run(nextId(db, "categories"), companyId, c.slug, c.name, c.sortOrder, now);
+      }
+      for (const u of DEFAULT_UNIT_SEED) {
+        insertUnit.run(nextId(db, "units"), companyId, u.code, u.name, now);
+      }
+    }
+  }
+
+  // Backfill products.categoryId from products.category (string) — for any
+  // row where categoryId is null, find or create a category with the slug
+  // matching the legacy string for that tenant, then link it.
+  const productsNeedingCategory = db
+    .prepare(
+      `SELECT id, companyId, category FROM products WHERE categoryId IS NULL AND category <> ''`
+    )
+    .all() as Array<{ id: number; companyId: number; category: string }>;
+  if (productsNeedingCategory.length > 0) {
+    const findCat = db.prepare(
+      "SELECT id FROM categories WHERE companyId = ? AND slug = ?"
+    );
+    const insertCat = db.prepare(
+      `INSERT INTO categories (id, companyId, slug, name, description, sortOrder, isActive, createdAt)
+       VALUES (?, ?, ?, ?, '', 999, 1, ?)`
+    );
+    const updateProdCat = db.prepare(
+      "UPDATE products SET categoryId = ? WHERE id = ? AND companyId = ?"
+    );
+    const cache = new Map<string, number>();
+    const now = new Date().toISOString();
+    for (const row of productsNeedingCategory) {
+      const key = `${row.companyId}:${row.category}`;
+      let catId = cache.get(key);
+      if (!catId) {
+        const existing = findCat.get(row.companyId, row.category) as { id: number } | undefined;
+        catId = existing?.id ?? nextId(db, "categories");
+        if (!existing) {
+          insertCat.run(catId, row.companyId, row.category, row.category, now);
+        }
+        cache.set(key, catId);
+      }
+      updateProdCat.run(catId, row.id, row.companyId);
+    }
+  }
+
+  // Same idea for products.unitId from products.unit (string).
+  const productsNeedingUnit = db
+    .prepare(
+      `SELECT id, companyId, unit FROM products WHERE unitId IS NULL`
+    )
+    .all() as Array<{ id: number; companyId: number; unit: string }>;
+  if (productsNeedingUnit.length > 0) {
+    const findUnit = db.prepare(
+      "SELECT id FROM units WHERE companyId = ? AND code = ?"
+    );
+    const insertUnit = db.prepare(
+      `INSERT INTO units (id, companyId, code, name, isActive, createdAt)
+       VALUES (?, ?, ?, ?, 1, ?)`
+    );
+    const updateProdUnit = db.prepare(
+      "UPDATE products SET unitId = ?, unit = ? WHERE id = ? AND companyId = ?"
+    );
+    const cache = new Map<string, number>();
+    const now = new Date().toISOString();
+    for (const row of productsNeedingUnit) {
+      const code = row.unit || "pcs";
+      const key = `${row.companyId}:${code}`;
+      let unitId = cache.get(key);
+      if (!unitId) {
+        const existing = findUnit.get(row.companyId, code) as { id: number } | undefined;
+        unitId = existing?.id ?? nextId(db, "units");
+        if (!existing) {
+          insertUnit.run(unitId, row.companyId, code, code, now);
+        }
+        cache.set(key, unitId);
+      }
+      updateProdUnit.run(unitId, code, row.id, row.companyId);
+    }
+  }
+
+  // After backfill, any product still missing categoryId/unitId (shouldn't
+  // happen since we seeded units above) gets the first available fallback
+  // for its tenant.
+  const orphan = db
+    .prepare(
+      `SELECT id, companyId FROM products WHERE categoryId IS NULL OR unitId IS NULL`
+    )
+    .all() as Array<{ id: number; companyId: number }>;
+  if (orphan.length > 0) {
+    const fallbackCatByCompany = new Map<number, number>();
+    const fallbackUnitByCompany = new Map<number, number>();
+    for (const { id, companyId } of orphan) {
+      let catId = fallbackCatByCompany.get(companyId);
+      if (!catId) {
+        const row = db
+          .prepare("SELECT id FROM categories WHERE companyId = ? ORDER BY sortOrder LIMIT 1")
+          .get(companyId) as { id: number } | undefined;
+        catId = row?.id;
+        if (catId) fallbackCatByCompany.set(companyId, catId);
+      }
+      let unitId = fallbackUnitByCompany.get(companyId);
+      if (!unitId) {
+        const row = db
+          .prepare("SELECT id FROM units WHERE companyId = ? ORDER BY id LIMIT 1")
+          .get(companyId) as { id: number } | undefined;
+        unitId = row?.id;
+        if (unitId) fallbackUnitByCompany.set(companyId, unitId);
+      }
+      db.prepare(
+        "UPDATE products SET categoryId = COALESCE(categoryId, ?), unitId = COALESCE(unitId, ?) WHERE id = ? AND companyId = ?"
+      ).run(catId ?? null, unitId ?? null, id, companyId);
+    }
+  }
+
+  // Helpful indexes for the new FK columns.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_products_category ON products(companyId, categoryId)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_products_unit ON products(companyId, unitId)");
+}
+
+/**
+ * For any active company that lacks the default unit set, seed kg + pcs.
+ * The seed for categories is meat-only and is handled inside
+ * ensureProductCategoryAndUnitFKs (where the backfill needs them first).
+ */
+function seedCategoriesAndUnitsForActiveCompanies(db: Database.Database): void {
+  const needUnits = db
+    .prepare("SELECT id FROM companies WHERE isActive = 1 AND id NOT IN (SELECT DISTINCT companyId FROM units)")
+    .all() as Array<{ id: number }>;
+  if (needUnits.length === 0) return;
+  const insertUnit = db.prepare(
+    `INSERT INTO units (id, companyId, code, name, isActive, createdAt)
+     VALUES (?, ?, ?, ?, 1, ?)`
+  );
+  const now = new Date().toISOString();
+  for (const { id: companyId } of needUnits) {
+    for (const u of DEFAULT_UNIT_SEED) {
+      insertUnit.run(nextId(db, "units"), companyId, u.code, u.name, now);
+    }
+  }
+}
+
+
 // --- Migration helper (kept for reference; primary migration done by scripts/migrate-from-json.cjs) ---
 function migrateFromJson(): void {
   // No-op: one-time data/db.json → meat_delivery.db migration has already
@@ -657,8 +913,10 @@ function rowToProduct(r: Record<string, unknown>): Product {
     sku: r.sku as string,
     name: r.name as string,
     nameBn: (r.nameBn as string) ?? "",
-    category: r.category as ProductCategory,
-    unit: (r.unit as Unit) ?? "kg",
+    categoryId: (r.categoryId as number | null) ?? 0,
+    categoryName: (r.categoryName as string) ?? "",
+    unitId: (r.unitId as number | null) ?? 0,
+    unitCode: (r.unitCode as string) ?? "pcs",
     costPrice: (r.costPrice as number) ?? 0,
     sellPrice: (r.sellPrice as number) ?? 0,
     marketPrice: (r.marketPrice as number) ?? 0,
@@ -1022,6 +1280,230 @@ export function updateCompany(
   return merged;
 }
 
+// --- Public API: Categories (per-tenant) ---
+
+function rowToCategory(r: Record<string, unknown>): Category {
+  return {
+    id: r.id as number,
+    companyId: r.companyId as number,
+    slug: r.slug as string,
+    name: r.name as string,
+    description: (r.description as string) ?? "",
+    sortOrder: (r.sortOrder as number) ?? 0,
+    isActive: ((r.isActive as number) ?? 1) === 1,
+    createdAt: r.createdAt as string,
+  };
+}
+
+export function getCategories(companyId: number, opts: { includeInactive?: boolean } = {}): Category[] {
+  const db = getDb();
+  const rows = (opts.includeInactive
+    ? db
+        .prepare(
+          "SELECT * FROM categories WHERE companyId = ? ORDER BY sortOrder ASC, name ASC"
+        )
+        .all(companyId)
+    : db
+        .prepare(
+          "SELECT * FROM categories WHERE companyId = ? AND isActive = 1 ORDER BY sortOrder ASC, name ASC"
+        )
+        .all(companyId)) as Record<string, unknown>[];
+  return rows.map(rowToCategory);
+}
+
+export function getCategory(id: number, companyId: number): Category | undefined {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT * FROM categories WHERE id = ? AND companyId = ?")
+    .get(id, companyId) as Record<string, unknown> | undefined;
+  return row ? rowToCategory(row) : undefined;
+}
+
+export interface NewCategoryInput {
+  slug: string;
+  name: string;
+  description?: string;
+  sortOrder?: number;
+}
+
+export function createCategory(input: NewCategoryInput, companyId: number): Category {
+  const db = getDb();
+  const slug = input.slug.trim().toLowerCase();
+  if (!/^[a-z0-9-]{1,32}$/.test(slug)) {
+    throw new Error("Slug must be 1-32 chars, lowercase letters/digits/hyphens.");
+  }
+  const existing = db
+    .prepare("SELECT id FROM categories WHERE companyId = ? AND slug = ?")
+    .get(companyId, slug) as { id: number } | undefined;
+  if (existing) throw new Error(`Category "${slug}" already exists for this company.`);
+  const id = nextId(db, "categories");
+  db.prepare(
+    `INSERT INTO categories (id, companyId, slug, name, description, sortOrder, isActive, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?)`
+  ).run(
+    id,
+    companyId,
+    slug,
+    input.name.trim(),
+    (input.description ?? "").trim(),
+    input.sortOrder ?? 100,
+    new Date().toISOString()
+  );
+  return getCategory(id, companyId)!;
+}
+
+export function updateCategory(
+  id: number,
+  data: Partial<Pick<Category, "name" | "description" | "sortOrder" | "isActive">>,
+  companyId: number
+): Category | null {
+  const db = getDb();
+  const existing = getCategory(id, companyId);
+  if (!existing) return null;
+  const merged: Category = {
+    ...existing,
+    name: data.name !== undefined ? data.name.trim() : existing.name,
+    description: data.description !== undefined ? data.description.trim() : existing.description,
+    sortOrder: data.sortOrder !== undefined ? data.sortOrder : existing.sortOrder,
+    isActive: data.isActive !== undefined ? data.isActive : existing.isActive,
+  };
+  db.prepare(
+    `UPDATE categories SET name=?, description=?, sortOrder=?, isActive=? WHERE id=? AND companyId=?`
+  ).run(
+    merged.name,
+    merged.description,
+    merged.sortOrder,
+    merged.isActive ? 1 : 0,
+    id,
+    companyId
+  );
+  return merged;
+}
+
+/**
+ * Soft-delete a category: products still pointing at it get auto-migrated to
+ * the next active category in the same company (or NULL if none) so the
+ * UI never breaks on a stale reference. Hard delete is rejected — admins
+ * should soft-delete to preserve historical order detail.
+ */
+export function deleteCategory(id: number, companyId: number): boolean {
+  const db = getDb();
+  const existing = getCategory(id, companyId);
+  if (!existing) return false;
+  // Pick a replacement — the lowest-sortOrder active category that isn't
+  // this one. If none, leave the products pointing at NULL (the UI shows
+  // "Uncategorized" for those rows).
+  const replacement = db
+    .prepare(
+      "SELECT id FROM categories WHERE companyId = ? AND id != ? AND isActive = 1 ORDER BY sortOrder ASC, id ASC LIMIT 1"
+    )
+    .get(companyId, id) as { id: number } | undefined;
+  db.prepare(
+    "UPDATE products SET categoryId = ? WHERE companyId = ? AND categoryId = ?"
+  ).run(replacement?.id ?? null, companyId, id);
+  db.prepare("DELETE FROM categories WHERE id = ? AND companyId = ?").run(id, companyId);
+  return true;
+}
+
+// --- Public API: Units (per-tenant) ---
+
+function rowToUnit(r: Record<string, unknown>): Unit {
+  return {
+    id: r.id as number,
+    companyId: r.companyId as number,
+    code: r.code as string,
+    name: r.name as string,
+    isActive: ((r.isActive as number) ?? 1) === 1,
+    createdAt: r.createdAt as string,
+  };
+}
+
+export function getUnits(companyId: number, opts: { includeInactive?: boolean } = {}): Unit[] {
+  const db = getDb();
+  const rows = (opts.includeInactive
+    ? db
+        .prepare(
+          "SELECT * FROM units WHERE companyId = ? ORDER BY name ASC"
+        )
+        .all(companyId)
+    : db
+        .prepare(
+          "SELECT * FROM units WHERE companyId = ? AND isActive = 1 ORDER BY name ASC"
+        )
+        .all(companyId)) as Record<string, unknown>[];
+  return rows.map(rowToUnit);
+}
+
+export function getUnit(id: number, companyId: number): Unit | undefined {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT * FROM units WHERE id = ? AND companyId = ?")
+    .get(id, companyId) as Record<string, unknown> | undefined;
+  return row ? rowToUnit(row) : undefined;
+}
+
+export interface NewUnitInput {
+  code: string;
+  name: string;
+}
+
+export function createUnit(input: NewUnitInput, companyId: number): Unit {
+  const db = getDb();
+  const code = input.code.trim().toLowerCase();
+  if (!/^[a-z0-9_-]{1,16}$/.test(code)) {
+    throw new Error("Unit code must be 1-16 chars, lowercase letters/digits/hyphens/underscores.");
+  }
+  const existing = db
+    .prepare("SELECT id FROM units WHERE companyId = ? AND code = ?")
+    .get(companyId, code) as { id: number } | undefined;
+  if (existing) throw new Error(`Unit "${code}" already exists for this company.`);
+  const id = nextId(db, "units");
+  db.prepare(
+    `INSERT INTO units (id, companyId, code, name, isActive, createdAt)
+     VALUES (?, ?, ?, ?, 1, ?)`
+  ).run(id, companyId, code, input.name.trim(), new Date().toISOString());
+  return getUnit(id, companyId)!;
+}
+
+export function updateUnit(
+  id: number,
+  data: Partial<Pick<Unit, "name" | "isActive">>,
+  companyId: number
+): Unit | null {
+  const db = getDb();
+  const existing = getUnit(id, companyId);
+  if (!existing) return null;
+  const merged: Unit = {
+    ...existing,
+    name: data.name !== undefined ? data.name.trim() : existing.name,
+    isActive: data.isActive !== undefined ? data.isActive : existing.isActive,
+  };
+  db.prepare(
+    "UPDATE units SET name=?, isActive=? WHERE id=? AND companyId=?"
+  ).run(merged.name, merged.isActive ? 1 : 0, id, companyId);
+  return merged;
+}
+
+/** Soft-delete a unit: products still on it auto-migrate to the next active
+ *  unit in the same company (or the default kg if none). Hard delete is
+ *  rejected to preserve historical order detail. */
+export function deleteUnit(id: number, companyId: number): boolean {
+  const db = getDb();
+  const existing = getUnit(id, companyId);
+  if (!existing) return false;
+  const replacement = db
+    .prepare(
+      "SELECT id FROM units WHERE companyId = ? AND id != ? AND isActive = 1 ORDER BY id ASC LIMIT 1"
+    )
+    .get(companyId, id) as { id: number } | undefined;
+  const fallback = replacement?.id ?? null;
+  db.prepare(
+    "UPDATE products SET unitId = COALESCE(?, unitId), unit = COALESCE((SELECT code FROM units WHERE id = ?), unit) WHERE companyId = ? AND unitId = ?"
+  ).run(fallback, fallback, companyId, id);
+  db.prepare("DELETE FROM units WHERE id = ? AND companyId = ?").run(id, companyId);
+  return true;
+}
+
 // --- Public API: Products & Stock ---
 
 export function getProducts(companyId: number): Product[] {
@@ -1029,7 +1511,16 @@ export function getProducts(companyId: number): Product[] {
   const db = getDb();
   return (
     db
-      .prepare("SELECT * FROM products WHERE companyId = ? ORDER BY id ASC")
+      .prepare(
+        `SELECT p.*,
+                c.name AS categoryName,
+                u.code AS unitCode
+           FROM products p
+           LEFT JOIN categories c ON c.id = p.categoryId AND c.companyId = p.companyId
+           LEFT JOIN units u ON u.id = p.unitId AND u.companyId = p.companyId
+          WHERE p.companyId = ?
+          ORDER BY p.id ASC`
+      )
       .all(companyId) as Record<string, unknown>[]
   ).map(rowToProduct);
 }
@@ -1038,7 +1529,15 @@ export function getProduct(id: number, companyId: number): Product | undefined {
   migrateFromJson();
   const db = getDb();
   const row = db
-    .prepare("SELECT * FROM products WHERE id = ? AND companyId = ?")
+    .prepare(
+      `SELECT p.*,
+              c.name AS categoryName,
+              u.code AS unitCode
+         FROM products p
+         LEFT JOIN categories c ON c.id = p.categoryId AND c.companyId = p.companyId
+         LEFT JOIN units u ON u.id = p.unitId AND u.companyId = p.companyId
+        WHERE p.id = ? AND p.companyId = ?`
+    )
     .get(id, companyId) as Record<string, unknown> | undefined;
   return row ? rowToProduct(row) : undefined;
 }
@@ -1060,8 +1559,8 @@ export function createProduct(
     sku: string;
     name: string;
     nameBn: string;
-    category: ProductCategory;
-    unit: Unit;
+    categoryId: number;
+    unitId: number;
     costPrice: number;
     sellPrice: number;
     marketPrice: number;
@@ -1071,19 +1570,35 @@ export function createProduct(
   companyId: number
 ): Product {
   const db = getDb();
+  // Resolve FK values + keep legacy TEXT columns in sync (other modules
+  // still display unit / category labels from those columns).
+  const categoryRow = db
+    .prepare("SELECT name, slug FROM categories WHERE id = ? AND companyId = ?")
+    .get(data.categoryId, companyId) as { name: string; slug: string } | undefined;
+  if (!categoryRow) {
+    throw new Error(`Category ${data.categoryId} not found for company ${companyId}.`);
+  }
+  const unitRow = db
+    .prepare("SELECT code, name FROM units WHERE id = ? AND companyId = ?")
+    .get(data.unitId, companyId) as { code: string; name: string } | undefined;
+  if (!unitRow) {
+    throw new Error(`Unit ${data.unitId} not found for company ${companyId}.`);
+  }
   const id = nextId(db, "products");
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO products (id, companyId, sku, name, nameBn, category, unit, costPrice, sellPrice, marketPrice, stockQty, reorderLevel, isActive, updatedAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+    `INSERT INTO products (id, companyId, sku, name, nameBn, category, categoryId, unit, unitId, costPrice, sellPrice, marketPrice, stockQty, reorderLevel, isActive, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
   ).run(
     id,
     companyId,
     data.sku,
     data.name,
     data.nameBn,
-    data.category,
-    data.unit,
+    categoryRow.slug,
+    data.categoryId,
+    unitRow.code,
+    data.unitId,
     data.costPrice,
     data.sellPrice,
     data.marketPrice,
@@ -1111,14 +1626,39 @@ export function updateProduct(
     id: existing.id, // never overwrite
     updatedAt: new Date().toISOString(),
   };
+  // If the categoryId or unitId changed, refresh the legacy TEXT mirror
+  // columns so older read paths still see the right label.
+  let legacyCategory = existing.categoryName || existing.categoryName;
+  let legacyUnit = existing.unitCode || existing.unitCode;
+  if (data.categoryId !== undefined && data.categoryId !== existing.categoryId) {
+    const catRow = db
+      .prepare("SELECT name, slug FROM categories WHERE id = ? AND companyId = ?")
+      .get(merged.categoryId, companyId) as { name: string; slug: string } | undefined;
+    if (!catRow) throw new Error(`Category ${merged.categoryId} not found for company ${companyId}.`);
+    legacyCategory = catRow.slug;
+  }
+  if (data.unitId !== undefined && data.unitId !== existing.unitId) {
+    const unitRow = db
+      .prepare("SELECT code FROM units WHERE id = ? AND companyId = ?")
+      .get(merged.unitId, companyId) as { code: string } | undefined;
+    if (!unitRow) throw new Error(`Unit ${merged.unitId} not found for company ${companyId}.`);
+    legacyUnit = unitRow.code;
+  }
   db.prepare(
-    `UPDATE products SET sku=?, name=?, nameBn=?, category=?, unit=?, costPrice=?, sellPrice=?, marketPrice=?, stockQty=?, reorderLevel=?, isActive=?, updatedAt=? WHERE id=? AND companyId=?`
+    `UPDATE products
+        SET sku=?, name=?, nameBn=?,
+            category=?, categoryId=?,
+            unit=?, unitId=?,
+            costPrice=?, sellPrice=?, marketPrice=?, stockQty=?, reorderLevel=?, isActive=?, updatedAt=?
+      WHERE id=? AND companyId=?`
   ).run(
     merged.sku,
     merged.name,
     merged.nameBn,
-    merged.category,
-    merged.unit,
+    legacyCategory,
+    merged.categoryId,
+    legacyUnit,
+    merged.unitId,
     merged.costPrice,
     merged.sellPrice,
     merged.marketPrice,
@@ -1129,7 +1669,7 @@ export function updateProduct(
     id,
     companyId
   );
-  return merged;
+  return getProduct(id, companyId) ?? null;
 }
 
 export function adjustStock(
@@ -1646,7 +2186,7 @@ export function createOrder(input: NewOrderInput, companyId: number): CreateOrde
       productId: it.productId,
       name: p?.name || "Item",
       nameBn: p?.nameBn || "",
-      unit: p?.unit || ("kg" as Unit),
+      unit: p?.unitCode || "kg",
       qty: it.qty,
       unitPrice: it.unitPrice,
       lineTotal,
@@ -2856,7 +3396,7 @@ export function createPurchaseOrder(
       productId: it.productId,
       name: p?.name || "Item",
       nameBn: p?.nameBn || "",
-      unit: p?.unit || ("kg" as Unit),
+      unit: p?.unitCode || "kg",
       qty: it.qty,
       unitCost: it.unitCost,
       lineTotal: Math.round(it.qty * it.unitCost * 100) / 100,

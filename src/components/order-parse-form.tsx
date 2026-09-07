@@ -50,7 +50,7 @@ export default function OrderParseForm({ products, settings }: Props) {
         nameBn: p.nameBn,
         sku: p.sku,
         sellPrice: p.sellPrice,
-        unit: p.unit,
+        unit: p.unitCode,
       })),
     [products]
   );
@@ -848,7 +848,7 @@ function ItemRow({
             onPatch({
               matchedProductId: v || null,
               unitPrice: p?.sellPrice ?? item.unitPrice,
-              unit: (p?.unit as "kg" | "pcs") ?? item.unit,
+              unit: p?.unitCode ?? item.unit,
               nameHint: p
                 ? `${p.name}${p.nameBn ? ` · ${p.nameBn}` : ""}`
                 : item.nameHint,
@@ -859,7 +859,7 @@ function ItemRow({
           <option value="">— choose product —</option>
           {products.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.name} · {p.nameBn || p.sku} ({p.sellPrice}/{(p as { unit: string }).unit})
+              {p.name} · {p.nameBn || p.sku} ({p.sellPrice}/{p.unitCode})
             </option>
           ))}
         </select>

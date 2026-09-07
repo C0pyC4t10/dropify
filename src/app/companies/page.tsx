@@ -211,7 +211,7 @@ export default function CompaniesPage() {
             <input
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="e.g. Bazarey Fashion"
+              placeholder="e.g. Acme Fashion"
             />
           </div>
           <div>

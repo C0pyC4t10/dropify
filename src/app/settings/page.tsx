@@ -201,7 +201,7 @@ export default function SettingsPage() {
       </div>
 
       {/* bKash Payment QR — uses the static image at /public/bkash-qr.png.
-          To update: drop a new PNG file at C:\Bazarey2.0\Meat Delivery\
+          To update: drop a new PNG file at the project root's /public/ folder, then refresh.
           public\bkash-qr.png (overwrite the existing one). The same
           image is embedded on every invoice surface — no re-encoding. */}
       <div className="card" style={{ padding: 20, marginBottom: 16, borderLeft: "3px solid #9d174d" }}>

@@ -35,7 +35,7 @@ export async function buildReceiptPdf(
     margins: { top: MARGIN_MM * MM_TO_PT, bottom: MARGIN_MM * MM_TO_PT, left: MARGIN_MM * MM_TO_PT, right: MARGIN_MM * MM_TO_PT },
     autoFirstPage: false,
     font: FONT_REGULAR,
-    info: { Title: `Receipt ${order.orderNo}`, Producer: "Bazarey Ops" },
+    info: { Title: `Receipt ${order.orderNo}`, Producer: "Dropify" },
   });
   doc.addPage({ size: [w, h], margins: { top: MARGIN_MM * MM_TO_PT, bottom: MARGIN_MM * MM_TO_PT, left: MARGIN_MM * MM_TO_PT, right: MARGIN_MM * MM_TO_PT } });
 

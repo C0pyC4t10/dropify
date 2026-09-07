@@ -1,5 +1,5 @@
 /**
- * Bazarey Dhaka Delivery Grid — operational cluster map.
+ * Dropify Dhaka Delivery Grid — operational cluster map.
  *
  * Why this file exists
  * ─────────────────────

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getShopLocation } from "@/lib/db";
 import { roadRoute } from "@/lib/geo";
+import { getCompanyIdFromRequest } from "@/lib/tenant";
 
 /**
  * POST /api/routes/road-distance
@@ -19,13 +20,14 @@ import { roadRoute } from "@/lib/geo";
  */
 export async function POST(request: Request) {
   try {
+    const companyId = await getCompanyIdFromRequest(request);
     const body = await request.json().catch(() => ({}));
     const stops = Array.isArray(body?.stops) ? body.stops : [];
     if (stops.length < 2) {
       return NextResponse.json({ error: "Need at least 2 points (origin + 1 stop)" }, { status: 400 });
     }
 
-    const shop = getShopLocation();
+    const shop = getShopLocation(companyId);
     // If the caller didn't include an explicit origin, prepend the shop.
     const origin = stops[0]?.origin ? null : shop;
     const coords = origin

@@ -134,7 +134,7 @@ async function tryPhoton(
   try {
     const res = await fetch(url, {
       signal: controller.signal,
-      headers: { Accept: "application/json", "User-Agent": "BazareyOps/1.0" },
+      headers: { Accept: "application/json", "User-Agent": "DropifyOps/1.0" },
     });
     if (!res.ok) return null;
     const body = (await res.json()) as {

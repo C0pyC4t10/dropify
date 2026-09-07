@@ -7,12 +7,21 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ActiveCompanyProvider } from "@/lib/active-company";
 
 export const metadata: Metadata = {
-  title: "Delivery Ops",
-  description: "Order, invoice, rider & stock management",
+  title: {
+    default: "Dropify",
+    template: "%s — Dropify",
+  },
+  description:
+    "Dropify — multi-tenant operations console for any business. Manage orders, products, suppliers, riders, and customers across every company from one place.",
+  icons: {
+    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+  },
 };
 
-// Prevent flash of wrong theme by hinting dark before paint
-const themeBootstrap = `(function(){try{var t=localStorage.getItem('bazarey-theme');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t;}}catch(e){}})();`;
+// Prevent flash of wrong theme by hinting dark before paint. The localStorage
+// key changed from the legacy "bazarey-theme" to "dropify-theme" — the legacy
+// key is read as a one-shot fallback so existing users keep their preference.
+const themeBootstrap = `(function(){try{var t=localStorage.getItem('dropify-theme')||localStorage.getItem('bazarey-theme');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t;}}catch(e){}})();`;
 
 export default function RootLayout({
   children,

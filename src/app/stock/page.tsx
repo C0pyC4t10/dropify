@@ -3,16 +3,17 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Plus, ArrowDownCircle, ArrowUpCircle, Search, Edit3, Trash2 } from "lucide-react";
-import type { Product, ProductCategory, StockMovement } from "@/lib/types";
-import { formatMoney, formatDateTime, CATEGORY_LABELS } from "@/lib/ui";
+import type { Product, Category, Unit, StockMovement } from "@/lib/types";
+import { formatMoney, formatDateTime } from "@/lib/ui";
 import { ExportMenu, type ExportColumn } from "@/components/export-menu";
-
-const CATEGORIES: Array<ProductCategory | "all"> = ["all", "beef", "chicken", "mutton", "offal", "fish"];
 
 export default function StockPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
-  const [filter, setFilter] = useState<ProductCategory | "all">("all");
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [units, setUnits] = useState<Unit[]>([]);
+  /** `0` means "all categories"; otherwise an actual categoryId. */
+  const [filter, setFilter] = useState<number>(0);
   const [query, setQuery] = useState("");
   const [showAdjust, setShowAdjust] = useState<Product | null>(null);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
@@ -23,12 +24,16 @@ export default function StockPage() {
 
   const load = useCallback(async () => {
     try {
-      const [p, m] = await Promise.all([
+      const [p, m, cats, us] = await Promise.all([
         fetch("/api/products").then((r) => r.json()),
         fetch("/api/stock").then((r) => r.json()),
+        fetch("/api/categories").then((r) => r.json()),
+        fetch("/api/units").then((r) => r.json()),
       ]);
       setProducts(p);
       setMovements(m);
+      setCategories(cats);
+      setUnits(us);
     } catch (e) {
       console.error(e);
     } finally {
@@ -73,7 +78,7 @@ export default function StockPage() {
   };
 
   const filtered = products.filter((p) => {
-    if (filter !== "all" && p.category !== filter) return false;
+    if (filter !== 0 && p.categoryId !== filter) return false;
     if (query) {
       const q = query.toLowerCase();
       if (!p.name.toLowerCase().includes(q) && !p.nameBn.includes(query)) return false;
@@ -117,8 +122,8 @@ export default function StockPage() {
               { header: "SKU", get: (p) => p.sku },
               { header: "Name", get: (p) => p.name },
               { header: "Name (Bn)", get: (p) => p.nameBn },
-              { header: "Category", get: (p) => CATEGORY_LABELS[p.category] || p.category },
-              { header: "Unit", get: (p) => p.unit },
+              { header: "Category", get: (p) => p.categoryName },
+              { header: "Unit", get: (p) => p.unitCode },
               { header: "Stock", get: (p) => p.stockQty },
               { header: "Reorder Level", get: (p) => p.reorderLevel },
               { header: "Cost Price", get: (p) => p.costPrice },
@@ -128,7 +133,7 @@ export default function StockPage() {
             ] as ExportColumn<Product>[]}
             filename="stock"
             title="Stock & Inventory"
-            subtitle={filter === "all" ? "all categories" : CATEGORY_LABELS[filter as ProductCategory]}
+            subtitle={filter === 0 ? "all categories" : (categories.find((c) => c.id === filter)?.name || "")}
             orientation="landscape"
             label="Export Products"
           />
@@ -141,19 +146,32 @@ export default function StockPage() {
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 6 }}>
-          {CATEGORIES.map((c) => (
+          <button
+            key="all"
+            onClick={() => setFilter(0)}
+            className="btn"
+            style={{
+              fontSize: 12,
+              background: filter === 0 ? "rgba(77, 158, 71, 0.18)" : "var(--bg-card)",
+              color: filter === 0 ? "var(--accent-green)" : "var(--text-secondary)",
+              border: `1px solid ${filter === 0 ? "rgba(77,158,71,0.4)" : "var(--border)"}`,
+            }}
+          >
+            All
+          </button>
+          {categories.map((c) => (
             <button
-              key={c}
-              onClick={() => setFilter(c)}
+              key={c.id}
+              onClick={() => setFilter(c.id)}
               className="btn"
               style={{
                 fontSize: 12,
-                background: filter === c ? "rgba(77, 158, 71, 0.18)" : "var(--bg-card)",
-                color: filter === c ? "var(--accent-green)" : "var(--text-secondary)",
-                border: `1px solid ${filter === c ? "rgba(77,158,71,0.4)" : "var(--border)"}`,
+                background: filter === c.id ? "rgba(77, 158, 71, 0.18)" : "var(--bg-card)",
+                color: filter === c.id ? "var(--accent-green)" : "var(--text-secondary)",
+                border: `1px solid ${filter === c.id ? "rgba(77,158,71,0.4)" : "var(--border)"}`,
               }}
             >
-              {c === "all" ? "All" : CATEGORY_LABELS[c]}
+              {c.name}
             </button>
           ))}
         </div>
@@ -204,16 +222,16 @@ export default function StockPage() {
                           border: "1px solid rgba(77,158,71,0.3)",
                         }}
                       >
-                        {CATEGORY_LABELS[p.category]}
+                        {p.categoryName}
                       </span>
                     </td>
                     <td>
                       <span style={{ fontWeight: 700, color: low ? "var(--accent-red)" : p.stockQty === 0 ? "var(--accent-red)" : "var(--text-primary)" }}>
-                        {p.stockQty} {p.unit}
+                        {p.stockQty} {p.unitCode}
                       </span>
                       {low && <span style={{ fontSize: 11, color: "var(--accent-red)", marginLeft: 6 }}>LOW</span>}
                     </td>
-                    <td style={{ color: "var(--text-muted)" }}>{p.reorderLevel} {p.unit}</td>
+                    <td style={{ color: "var(--text-muted)" }}>{p.reorderLevel} {p.unitCode}</td>
                     <td>{formatMoney(p.costPrice)}</td>
                     <td style={{ fontWeight: 600 }}>{formatMoney(p.sellPrice)}</td>
                     <td style={{ color: "var(--text-muted)" }}>{formatMoney(p.marketPrice)}</td>
@@ -299,7 +317,7 @@ function AdjustStockModal({ product, onClose, onSaved }: { product: Product; onC
       <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
         <h2 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 4px" }}>Adjust Stock</h2>
         <p style={{ margin: "0 0 16px", fontSize: 13, color: "var(--text-muted)" }}>
-          {product.name} ({product.nameBn}) — current: <b>{product.stockQty} {product.unit}</b>
+          {product.name} ({product.nameBn}) — current: <b>{product.stockQty} {product.unitCode}</b>
         </p>
         <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
           <button
@@ -329,7 +347,7 @@ function AdjustStockModal({ product, onClose, onSaved }: { product: Product; onC
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
           <div>
-            <label>Quantity ({product.unit})</label>
+            <label>Quantity ({product.unitCode})</label>
             <input type="number" min="0" step="0.1" value={qty} onChange={(e) => setQty(e.target.value)} />
           </div>
           <div>
@@ -427,12 +445,14 @@ function EditProductModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [units, setUnits] = useState<Unit[]>([]);
   const [form, setForm] = useState({
     sku: product.sku,
     name: product.name,
     nameBn: product.nameBn,
-    category: product.category,
-    unit: product.unit,
+    categoryId: product.categoryId,
+    unitId: product.unitId,
     costPrice: String(product.costPrice),
     sellPrice: String(product.sellPrice),
     marketPrice: String(product.marketPrice),
@@ -445,7 +465,18 @@ function EditProductModal({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const set = (k: string, v: string | boolean) => setForm({ ...form, [k]: v });
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/categories").then((r) => r.json()),
+      fetch("/api/units").then((r) => r.json()),
+    ]).then(([cats, us]) => {
+      setCategories(cats as Category[]);
+      setUnits(us as Unit[]);
+    });
+  }, []);
+
+  const set = (k: string, v: string | boolean | number) =>
+    setForm({ ...form, [k]: v });
 
   const submit = async () => {
     setError("");
@@ -454,10 +485,19 @@ function EditProductModal({
       setError("SKU and product name are required.");
       return;
     }
+    if (!form.categoryId || !form.unitId) {
+      setError("Pick a category and a unit before saving.");
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
-        ...form,
+        sku: form.sku,
+        name: form.name,
+        nameBn: form.nameBn,
+        categoryId: form.categoryId,
+        unitId: form.unitId,
+        isActive: form.isActive,
         costPrice: parseFloat(form.costPrice) || 0,
         sellPrice: parseFloat(form.sellPrice) || 0,
         marketPrice: parseFloat(form.marketPrice) || 0,
@@ -515,16 +555,27 @@ function EditProductModal({
           <div><label>Name *</label><input value={form.name} onChange={(e) => set("name", e.target.value)} /></div>
           <div><label>Name (Bangla)</label><input value={form.nameBn} onChange={(e) => set("nameBn", e.target.value)} /></div>
           <div><label>Category</label>
-            <select value={form.category} onChange={(e) => set("category", e.target.value)}>
-              {["beef", "chicken", "mutton", "offal", "fish"].map((c) => (
-                <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>
+            <select
+              value={form.categoryId}
+              onChange={(e) => set("categoryId", Number(e.target.value))}
+            >
+              {categories.length === 0 && <option value={0}>—</option>}
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
           </div>
           <div><label>Unit</label>
-            <select value={form.unit} onChange={(e) => set("unit", e.target.value)}>
-              <option value="kg">kg</option>
-              <option value="pcs">pcs</option>
+            <select
+              value={form.unitId}
+              onChange={(e) => set("unitId", Number(e.target.value))}
+            >
+              {units.length === 0 && <option value={0}>—</option>}
+              {units.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.code} ({u.name})
+                </option>
+              ))}
             </select>
           </div>
           <div>
@@ -550,7 +601,7 @@ function EditProductModal({
         >
           <label style={{ fontWeight: 600 }}>Adjust Stock (optional)</label>
           <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 8px" }}>
-            Current stock: <b>{product.stockQty} {product.unit}</b>. Enter a positive number to add (purchase) or negative to subtract (wastage). Leave blank to skip.
+            Current stock: <b>{product.stockQty} {product.unitCode}</b>. Enter a positive number to add (purchase) or negative to subtract (wastage). Leave blank to skip.
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 8 }}>
             <input

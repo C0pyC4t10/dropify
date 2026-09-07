@@ -25,17 +25,73 @@ export interface Company {
   createdAt: string;
 }
 
-export type ProductCategory = "beef" | "chicken" | "mutton" | "offal" | "fish";
+/**
+ * Per-tenant product category — first-class row in the `categories` table.
+ * Each company owns its own taxonomy and can rename / reorder / disable
+ * entries from /admin/categories. The meat company is seeded with the
+ * standard 5: beef / chicken / mutton / offal / fish.
+ */
+export interface Category {
+  id: number;
+  companyId: number;
+  /** URL-safe identifier inside the tenant (e.g. "beef", "shirts"). */
+  slug: string;
+  /** Display name shown in dropdowns and reports. */
+  name: string;
+  description: string;
+  /** Lower numbers render first; admins drag-reorder in the UI. */
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+}
 
-export type Unit = "kg" | "pcs";
+/**
+ * Per-tenant measurement unit — first-class row in the `units` table.
+ * Each company picks the units that match their business (meat: kg/pcs;
+ * fashion: pcs/sizes; groceries: kg/litre/pcs).
+ */
+export interface Unit {
+  id: number;
+  companyId: number;
+  /** Short code stored on products (e.g. "kg", "pcs", "dozen"). */
+  code: string;
+  /** Display label shown in UI. */
+  name: string;
+  isActive: boolean;
+  createdAt: string;
+}
 
+/**
+ * Legacy default category values — the seed set every company starts with
+ * unless the operator adds their own. The meat company uses these as its
+ * initial catalogue; other companies are free to override.
+ */
+export const DEFAULT_CATEGORY_SLUGS = ["beef", "chicken", "mutton", "offal", "fish"] as const;
+export type DefaultCategorySlug = (typeof DEFAULT_CATEGORY_SLUGS)[number];
+
+/** Legacy unit codes for the units we seed in every tenant by default. */
+export const DEFAULT_UNIT_CODES = ["kg", "pcs"] as const;
+export type DefaultUnitCode = (typeof DEFAULT_UNIT_CODES)[number];
+
+/**
+ * On `Product`, `categoryId` + `unitId` are the new FK columns. The
+ * legacy `category` / `unit` strings are kept on the row too — they mirror
+ * the FK value at write time so older code paths that compare against
+ * "kg" / "beef" keep working. New code should prefer the IDs.
+ */
 export interface Product {
   id: number;
   sku: string;
   name: string;
   nameBn: string;
-  category: ProductCategory;
-  unit: Unit;
+  /** FK → categories.id (per-tenant). Required for new products. */
+  categoryId: number;
+  /** Cached category name for convenience — populated by getProducts. */
+  categoryName: string;
+  /** FK → units.id (per-tenant). Required for new products. */
+  unitId: number;
+  /** Cached unit code for convenience. */
+  unitCode: string;
   costPrice: number;
   sellPrice: number;
   marketPrice: number;
@@ -105,7 +161,8 @@ export interface OrderItem {
   productId: number;
   name: string;
   nameBn: string;
-  unit: Unit;
+  /** Unit code snapshot at order time (e.g. "kg", "pcs"). Immutable. */
+  unit: string;
   qty: number;
   unitPrice: number;
   lineTotal: number;
@@ -227,7 +284,8 @@ export interface PurchaseOrderItem {
   productId: number;
   name: string;
   nameBn: string;
-  unit: Unit;
+  /** Unit code snapshot at PO time (e.g. "kg", "pcs"). Immutable. */
+  unit: string;
   qty: number;
   unitCost: number;
   lineTotal: number;

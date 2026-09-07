@@ -38,7 +38,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     try {
-      localStorage.setItem("bazarey-theme", theme);
+      localStorage.setItem("dropify-theme", theme);
     } catch {
       /* ignore */
     }

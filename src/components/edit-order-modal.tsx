@@ -133,7 +133,7 @@ export function EditOrderModal({ order, products, customers, onClose, onSaved }:
           productId: r.productId,
           name: r.product?.name || "Item",
           nameBn: r.product?.nameBn || "",
-          unit: r.product?.unit || "kg",
+          unit: r.product?.unitCode || "kg",
           qty: r.qty,
           unitPrice: r.unitPrice,
           lineTotal: Math.round(r.lineTotal * 100) / 100,

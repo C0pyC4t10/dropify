@@ -21,6 +21,7 @@ import {
   Wallet,
   Building2,
   ChevronDown,
+  Shield,
 } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { useActiveCompany } from "@/lib/active-company";
@@ -136,6 +137,7 @@ const NAV = [
   { href: "/riders", label: "Riders", icon: Bike },
   { href: "/customers", label: "Customers", icon: Users },
   { href: "/companies", label: "Companies", icon: Building2 },
+  { href: "/admin", label: "Admin", icon: Shield },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -170,9 +172,9 @@ export function Header({ className = "" }: { className?: string }) {
   useEffect(() => {
     if (typeof document === "undefined") return;
     if (activeCompany) {
-      document.title = `${activeCompany.name} — Ops`;
+      document.title = `${activeCompany.name} — Dropify`;
     } else {
-      document.title = "Delivery Ops";
+      document.title = "Dropify";
     }
   }, [activeCompany]);
 
@@ -196,7 +198,7 @@ export function Header({ className = "" }: { className?: string }) {
   };
 
   // Fallback while /api/companies loads — show generic wordmark.
-  const companyName = activeCompany?.name ?? "Delivery Ops";
+  const companyName = activeCompany?.name ?? "Dropify";
 
   return (
     <>

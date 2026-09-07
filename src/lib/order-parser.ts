@@ -44,8 +44,10 @@ export interface ParsedOrderItem {
   quantity: number;
   /** Unit price (per kg or per pc). NOT line total — compute lineTotal = qty*unitPrice. */
   unitPrice: number;
-  /** Inferred unit (kg/pcs). Defaults to "kg". */
-  unit: "kg" | "pcs";
+  /** Inferred unit code. The parser is tuned for the meat company's
+   *  "kg" / "pcs" / "কেজি" / "পিস" vocab but accepts any string and falls
+   *  back to the default when uncertain. */
+  unit: string;
   /** Resolved product id from our DB if matched; null otherwise. */
   matchedProductId: number | null;
   /** Confidence this line is a real line item (not header/noise). */

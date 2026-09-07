@@ -31,7 +31,7 @@ export function Footer({ className = "" }: FooterProps) {
     };
   }, [activeCompanyId]);
 
-  const companyName = settings?.businessName ?? activeCompany?.name ?? "Delivery Ops";
+  const companyName = settings?.businessName ?? activeCompany?.name ?? "Dropify";
   const phone = settings?.phone || "";
   const isMeat = activeCompany?.slug === "meat";
   const Icon = isMeat ? Beef : Building2;

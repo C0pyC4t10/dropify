@@ -8,6 +8,8 @@ import {
   findPendingOrderByWpId,
   approveOrder,
   getCompanies,
+  getCategories,
+  getUnits,
 } from "@/lib/db";
 import type { PaymentMethod } from "@/lib/types";
 
@@ -227,12 +229,25 @@ export async function POST(request: Request) {
         : ""; // English-only product has no Bangla name
       const autoSku = rawSku || ("WP-" + Date.now() + "-" + Math.floor(Math.random() * 1000));
       try {
+        // Use the tenant's first active category + first active unit
+        // instead of hard-coded meat values — works for any vertical.
+        const tenantCategories = getCategories(companyId);
+        const tenantUnits = getUnits(companyId);
+        const fallbackCategoryId = tenantCategories[0]?.id;
+        const fallbackUnitId =
+          tenantUnits.find((u) => u.code === (it.unit || "").toLowerCase())?.id ??
+          tenantUnits[0]?.id;
+        if (!fallbackCategoryId || !fallbackUnitId) {
+          throw new Error(
+            "Tenant has no categories or units configured. Set them up in /admin first."
+          );
+        }
         const created = createProduct({
           sku: autoSku,
           name: displayEn,
           nameBn: displayBn,
-          category: "beef",
-          unit: it.unit || "kg",
+          categoryId: fallbackCategoryId,
+          unitId: fallbackUnitId,
           costPrice: Number(it.unitPrice) || 0,
           sellPrice: Number(it.unitPrice) || 0,
           marketPrice: Number(it.unitPrice) || 0,
@@ -320,7 +335,7 @@ export async function GET() {
   return NextResponse.json(
     {
       ok: true,
-      message: "Bazarey WP webhook endpoint reachable. POST with X-Webhook-Secret to send orders.",
+      message: "Dropify WP webhook endpoint reachable. POST with X-Webhook-Secret to send orders.",
     },
     { status: 200 }
   );

@@ -322,7 +322,7 @@ export default function Dashboard() {
               {stats.lowStock.map((p) => (
                 <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 4px", borderBottom: "1px solid rgba(44,56,46,0.4)", fontSize: 13 }}>
                   <span>{p.name} <span style={{ color: "var(--text-muted)", fontSize: 12 }}>({p.nameBn})</span></span>
-                  <span style={{ fontWeight: 600, color: "var(--accent-red)" }}>{p.stockQty} {p.unit}</span>
+                  <span style={{ fontWeight: 600, color: "var(--accent-red)" }}>{p.stockQty} {p.unitCode}</span>
                 </div>
               ))}
             </div>

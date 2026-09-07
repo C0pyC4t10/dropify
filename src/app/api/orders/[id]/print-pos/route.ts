@@ -72,7 +72,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     const riders = getRiders();
     const rider = order.riderId ? riders.find((r) => r.id === order.riderId) ?? null : null;
 
-    const pngPath = path.join(os.tmpdir(), `bazarey-receipt-${id}-${Date.now()}.png`);
+    const pngPath = path.join(os.tmpdir(), `dropify-receipt-${id}-${Date.now()}.png`);
     log(`Building PNG at ${pngPath}`);
     await buildReceiptPng(order, settings, rider, pngPath, new Date(), { skipQr: true });
     const stat = fs.statSync(pngPath);
@@ -232,7 +232,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
 
       // ---- Fallback: shell out via `sg lp -c` to escalate group ----
       // Works without the dev server itself being in the lp group.
-      const cmdPath = path.join(os.tmpdir(), `bazarey-${protocolUsed.toLowerCase()}-${id}-${Date.now()}.bin`);
+      const cmdPath = path.join(os.tmpdir(), `dropify-${protocolUsed.toLowerCase()}-${id}-${Date.now()}.bin`);
       fs.writeFileSync(cmdPath, commandBuffer);
       const sg = await runCli("sg", ["lp", "-c", `cat '${cmdPath}' > '${devicePath}' && rm '${cmdPath}'`], { timeoutMs: 15000 });
       try { fs.unlinkSync(cmdPath); } catch { /* ignore */ }
@@ -253,7 +253,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
       return NextResponse.json(
         {
           error: `Direct device and sg wrapper both failed: ${detail}`,
-          hint: "Make sure the printer is plugged in, /dev/usb/lp0 exists, and the Bazarey user is in the `lp` group (`sudo usermod -aG lp $USER`, then log out/in).",
+          hint: "Make sure the printer is plugged in, /dev/usb/lp0 exists, and the Dropify user is in the `lp` group (`sudo usermod -aG lp $USER`, then log out/in).",
           printerName,
           protocol: protocolUsed,
           debug: debugLog,

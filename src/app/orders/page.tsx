@@ -238,7 +238,7 @@ function OrdersPageContent() {
       filename: hasSelection ? `orders-items-selected-${selectedIds.size}` : "orders-items",
       title: "Order Items Report",
       subtitle: exportSubtitle,
-      businessName: settings?.businessName || "Bazarey Meat Delivery",
+      businessName: settings?.businessName || "",
       tagline: settings?.tagline || "",
     });
   };
@@ -260,7 +260,7 @@ function OrdersPageContent() {
       filename: hasSelection ? `inventory-aggregate-selected-${selectedIds.size}` : "inventory-aggregate",
       title: "Inventory Aggregate (by product, all dates)",
       subtitle: exportSubtitle,
-      businessName: settings?.businessName || "Bazarey Meat Delivery",
+      businessName: settings?.businessName || "",
       tagline: settings?.tagline || "",
     });
   };
@@ -399,7 +399,7 @@ function OrdersPageContent() {
             onClick={() =>
               void downloadPrepListPDF(
                 aggregateOrdersBySku(exportRows),
-                settings?.businessName || "Bazarey Meat Delivery",
+                settings?.businessName || "",
                 exportRows.length
               )
             }
@@ -425,7 +425,7 @@ function OrdersPageContent() {
             title="Orders Report"
             subtitle={exportSubtitle}
             orientation="landscape"
-            businessName={settings?.businessName || "Bazarey Meat Delivery"}
+            businessName={settings?.businessName || ""}
             tagline={settings?.tagline || ""}
             label={hasSelection ? `Export ${selectedIds.size} selected` : "Export"}
           />
@@ -928,7 +928,7 @@ function OrdersPageContent() {
                   e.stopPropagation();
                   void downloadPrepListPDF(
                     aggRows,
-                    settings?.businessName || "Bazarey Meat Delivery",
+                    settings?.businessName || "",
                     exportRows.length
                   );
                 }}
@@ -944,7 +944,7 @@ function OrdersPageContent() {
                     filename: "prep-list",
                     title: "Prep List",
                     subtitle: exportSubtitle,
-                    businessName: settings?.businessName || "Bazarey Meat Delivery",
+                    businessName: settings?.businessName || "",
                     tagline: settings?.tagline,
                   });
                 }}

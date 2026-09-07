@@ -3,6 +3,7 @@ import { geocodeAddressFresh } from "@/lib/geocode";
 import { getShopLocation } from "@/lib/db";
 import { haversineMeters, roadRoute } from "@/lib/geo";
 import { getQuadrantFromRef } from "@/lib/area-centroids";
+import { getCompanyIdFromRequest } from "@/lib/tenant";
 
 /**
  * POST /api/routes/quick-locate
@@ -20,6 +21,7 @@ import { getQuadrantFromRef } from "@/lib/area-centroids";
  */
 export async function POST(request: Request) {
   try {
+    const companyId = await getCompanyIdFromRequest(request);
     const body = await request.json().catch(() => ({}));
     const raw = String(body?.address ?? "").trim();
     if (!raw) {
@@ -47,7 +49,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const shop = getShopLocation();
+    const shop = getShopLocation(companyId);
     // Straight-line for reference / map scale.
     const straightLine = haversineMeters(shop.lat, shop.lng, result.lat, result.lng);
     // Road-network distance via OSRM (matches Google Maps).

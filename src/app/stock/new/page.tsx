@@ -4,16 +4,16 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Save, Package, Tag, Boxes } from "lucide-react";
-import type { Product, ProductCategory } from "@/lib/types";
-import { CATEGORY_LABELS, formatMoney } from "@/lib/ui";
+import type { Product, Category, Unit } from "@/lib/types";
+import { formatMoney } from "@/lib/ui";
 import { useActiveCompany } from "@/lib/active-company";
 
 interface FormState {
   sku: string;
   name: string;
   nameBn: string;
-  category: ProductCategory;
-  unit: Product["unit"];
+  categoryId: number;
+  unitId: number;
   costPrice: string;
   sellPrice: string;
   marketPrice: string;
@@ -25,12 +25,14 @@ export default function NewProductPage() {
   const router = useRouter();
   const { activeCompany } = useActiveCompany();
   const isMeat = activeCompany?.slug === "meat";
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [units, setUnits] = useState<Unit[]>([]);
   const [form, setForm] = useState<FormState>({
     sku: "",
     name: "",
     nameBn: "",
-    category: "beef",
-    unit: "kg",
+    categoryId: 0,
+    unitId: 0,
     costPrice: "0",
     sellPrice: "0",
     marketPrice: "0",
@@ -65,13 +67,21 @@ export default function NewProductPage() {
       setError("Prices cannot be negative.");
       return;
     }
+    if (!form.categoryId || !form.unitId) {
+      setError("Pick a category and a unit before saving.");
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch("/api/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...form,
+          sku: form.sku,
+          name: form.name,
+          nameBn: form.nameBn,
+          categoryId: form.categoryId,
+          unitId: form.unitId,
           costPrice: cost,
           sellPrice: sell,
           marketPrice: market,
@@ -87,6 +97,27 @@ export default function NewProductPage() {
       setSaving(false);
     }
   };
+
+  // Load dropdown data once on mount — categories + units per tenant.
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/categories").then((r) => r.json()),
+      fetch("/api/units").then((r) => r.json()),
+    ])
+      .then(([cats, us]) => {
+        const catsTyped = cats as Category[];
+        const usTyped = us as Unit[];
+        setCategories(catsTyped);
+        setUnits(usTyped);
+        setForm((prev) => ({
+          ...prev,
+          categoryId: prev.categoryId || catsTyped[0]?.id || 0,
+          unitId: prev.unitId || usTyped[0]?.id || 0,
+        }));
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Ctrl/Cmd + S to save (desktop power-user shortcut)
   useEffect(() => {
@@ -214,19 +245,39 @@ export default function NewProductPage() {
               )}
               <div>
                 <label>Category</label>
-                <select value={form.category} onChange={(e) => set("category", e.target.value as ProductCategory)}>
-                  {(["beef", "chicken", "mutton", "offal", "fish"] as ProductCategory[]).map((c) => (
-                    <option key={c} value={c}>
-                      {CATEGORY_LABELS[c]}
-                    </option>
+                <select
+                  value={form.categoryId}
+                  onChange={(e) => set("categoryId", Number(e.target.value))}
+                >
+                  {categories.length === 0 && (
+                    <option value={0}>— no categories yet —</option>
+                  )}
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
                 </select>
+                {categories.length === 0 && (
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                    Add categories in{" "}
+                    <Link href="/admin/categories" style={{ color: "var(--accent-green)" }}>
+                      /admin/categories
+                    </Link>{" "}
+                    first.
+                  </div>
+                )}
               </div>
               <div>
                 <label>Unit</label>
-                <select value={form.unit} onChange={(e) => set("unit", e.target.value as Product["unit"])}>
-                  <option value="kg">kg (kilograms)</option>
-                  <option value="pcs">pcs (pieces)</option>
+                <select
+                  value={form.unitId}
+                  onChange={(e) => set("unitId", Number(e.target.value))}
+                >
+                  {units.length === 0 && <option value={0}>— no units yet —</option>}
+                  {units.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.code} ({u.name})
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -259,7 +310,7 @@ export default function NewProductPage() {
                   value={form.costPrice}
                   onChange={(e) => set("costPrice", e.target.value)}
                 />
-                <p style={hintStyle}>What you pay the supplier per / {form.unit}.</p>
+                <p style={hintStyle}>What you pay the supplier per / {units.find((u) => u.id === form.unitId)?.code || ""}.</p>
               </div>
               <div>
                 <label>Sell Price (৳)</label>
@@ -270,7 +321,7 @@ export default function NewProductPage() {
                   value={form.sellPrice}
                   onChange={(e) => set("sellPrice", e.target.value)}
                 />
-                <p style={hintStyle}>The price customers pay per / {form.unit}.</p>
+                <p style={hintStyle}>The price customers pay per / {units.find((u) => u.id === form.unitId)?.code || ""}.</p>
               </div>
               <div>
                 <label>Market Price (৳)</label>
@@ -309,7 +360,7 @@ export default function NewProductPage() {
               </div>
               <div style={{ display: "flex", gap: 14, fontSize: 12, color: "var(--text-muted)" }}>
                 <span>
-                  Profit / {form.unit}:{" "}
+                  Profit / {units.find((u) => u.id === form.unitId)?.code || ""}:{" "}
                   <b style={{ color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>
                     {formatMoney(Math.max(0, sell - cost))}
                   </b>
@@ -350,7 +401,7 @@ export default function NewProductPage() {
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               <div>
-                <label>Initial Stock ({form.unit})</label>
+                <label>Initial Stock ({units.find((u) => u.id === form.unitId)?.code || ""})</label>
                 <input
                   type="number"
                   min="0"
@@ -363,7 +414,7 @@ export default function NewProductPage() {
                 </p>
               </div>
               <div>
-                <label>Reorder Level ({form.unit})</label>
+                <label>Reorder Level ({units.find((u) => u.id === form.unitId)?.code || ""})</label>
                 <input
                   type="number"
                   min="0"
@@ -385,15 +436,15 @@ export default function NewProductPage() {
             </h2>
             <SummaryRow label="Name" value={form.name || "—"} />
             {isMeat && <SummaryRow label="Bangla" value={form.nameBn || "—"} bn />}
-            <SummaryRow label="Category" value={CATEGORY_LABELS[form.category] || form.category} />
-            <SummaryRow label="Unit" value={form.unit} />
+            <SummaryRow label="Category" value={categories.find((c) => c.id === form.categoryId)?.name || "—"} />
+            <SummaryRow label="Unit" value={units.find((u) => u.id === form.unitId)?.code || ""} />
             <div style={{ height: 1, background: "var(--border)", margin: "10px 0" }} />
             <SummaryRow label="Cost" value={formatMoney(cost)} />
             <SummaryRow label="Sell" value={formatMoney(sell)} highlight />
             <SummaryRow label="Market" value={formatMoney(market)} />
             <div style={{ height: 1, background: "var(--border)", margin: "10px 0" }} />
-            <SummaryRow label="Stock" value={`${form.stockQty} ${form.unit}`} />
-            <SummaryRow label="Reorder at" value={`${form.reorderLevel} ${form.unit}`} />
+            <SummaryRow label="Stock" value={`${form.stockQty} ${units.find((u) => u.id === form.unitId)?.code || ""}`} />
+            <SummaryRow label="Reorder at" value={`${form.reorderLevel} ${units.find((u) => u.id === form.unitId)?.code || ""}`} />
           </section>
 
           <button
