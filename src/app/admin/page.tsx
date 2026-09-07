@@ -14,6 +14,7 @@ import {
   Ruler,
   TrendingUp,
   Activity,
+  Plus,
 } from "lucide-react";
 
 interface CompanyRow {
@@ -108,6 +109,13 @@ export default function AdminConsolePage() {
         <Link href="/" className="btn btn-secondary">
           <ArrowLeft size={15} /> Back
         </Link>
+        <Link
+          href="/admin/companies"
+          className="btn btn-primary"
+          style={{ marginLeft: 8 }}
+        >
+          <Plus size={15} /> Add business
+        </Link>
       </div>
 
       {/* Quick nav tiles */}
@@ -190,7 +198,7 @@ export default function AdminConsolePage() {
                     href={`/admin/companies/${c.id}`}
                     style={{ fontSize: 11, color: "var(--accent-green)" }}
                   >
-                    Edit →
+                    Open →
                   </Link>
                 </td>
               </tr>

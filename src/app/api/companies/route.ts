@@ -26,6 +26,7 @@ export async function POST(request: Request) {
       tagline: String(body.tagline ?? ""),
       logoUrl: String(body.logoUrl ?? ""),
       accentColor: String(body.accentColor ?? ""),
+      seedVertical: typeof body.seedVertical === "string" ? body.seedVertical : "none",
     });
     return NextResponse.json(company, { status: 201 });
   } catch (e) {

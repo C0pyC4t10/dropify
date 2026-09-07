@@ -2,12 +2,42 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Plus, Save, Trash2, X, Edit3 } from "lucide-react";
+import {
+  ArrowLeft,
+  Plus,
+  Save,
+  Trash2,
+  X,
+  Edit3,
+  Sparkles,
+  ArrowRight,
+} from "lucide-react";
 import type { Company } from "@/lib/types";
 
 interface AdminCompany extends Company {
   businessName?: string;
 }
+
+type VerticalKey =
+  | "none"
+  | "meat"
+  | "fashion"
+  | "grocery"
+  | "pharmacy"
+  | "electronics";
+
+const VERTICAL_TEMPLATES: Array<{
+  key: VerticalKey;
+  label: string;
+  description: string;
+}> = [
+  { key: "none",        label: "Start blank",  description: "Just kg / pcs units. Add categories later in /admin/categories." },
+  { key: "meat",        label: "Meat",         description: "beef / chicken / mutton / offal / fish (5 entries)" },
+  { key: "fashion",     label: "Fashion",      description: "tops / bottoms / dresses / outerwear / footwear / bags / accessories / jewelry" },
+  { key: "grocery",     label: "Grocery",      description: "fruits / vegetables / dairy / bakery / beverages / snacks / frozen / pantry" },
+  { key: "pharmacy",    label: "Pharmacy",     description: "OTC / prescription / wellness / skincare / vitamins / baby care" },
+  { key: "electronics", label: "Electronics",  description: "phones / laptops / audio / wearables / cameras / accessories" },
+];
 
 export default function AdminCompaniesPage() {
   const [companies, setCompanies] = useState<AdminCompany[]>([]);
@@ -50,7 +80,7 @@ export default function AdminCompaniesPage() {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Companies</h1>
           <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "4px 0 0" }}>
-            Every tenant in Dropify. Edit branding, view settings, deactivate, or delete.
+            Every tenant in Dropify. Add a business, edit branding, deactivate, or delete.
           </p>
         </div>
         <button
@@ -60,7 +90,7 @@ export default function AdminCompaniesPage() {
             setEditingId(null);
           }}
         >
-          <Plus size={15} /> Add company
+          <Plus size={15} /> Add business
         </button>
       </div>
 
@@ -76,25 +106,51 @@ export default function AdminCompaniesPage() {
 
       {loading ? (
         <div style={{ color: "var(--text-muted)" }}>Loading…</div>
+      ) : companies.length === 0 ? (
+        <div
+          className="card"
+          style={{
+            padding: 40,
+            textAlign: "center",
+            background: "rgba(77, 158, 71, 0.04)",
+            borderColor: "rgba(77, 158, 71, 0.2)",
+          }}
+        >
+          <Sparkles size={28} color="var(--accent-green)" />
+          <h2 style={{ fontSize: 16, fontWeight: 600, margin: "12px 0 6px" }}>
+            No businesses yet
+          </h2>
+          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 16px" }}>
+            Spin up your first tenant. Pick a vertical template and Dropify will seed the
+            starter categories + units for you.
+          </p>
+          <button
+            className="btn btn-primary"
+            onClick={() => setCreatingNew(true)}
+          >
+            <Plus size={15} /> Add your first business
+          </button>
+        </div>
       ) : (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           <table className="table" style={{ margin: 0 }}>
             <thead>
               <tr>
-                <th>ID</th>
-                <th>Slug</th>
+                <th style={{ width: 50 }}>ID</th>
+                <th style={{ width: 110 }}>Slug</th>
                 <th>Name</th>
                 <th>Tagline</th>
-                <th>Status</th>
-                <th>Active</th>
-                <th />
+                <th style={{ width: 70 }}>Status</th>
+                <th style={{ width: 100 }}>Created</th>
+                <th style={{ width: 90 }} />
+                <th style={{ width: 70 }} />
               </tr>
             </thead>
             <tbody>
               {companies.map((c) =>
                 editingId === c.id ? (
                   <tr key={c.id}>
-                    <td colSpan={7} style={{ padding: 0 }}>
+                    <td colSpan={8} style={{ padding: 0 }}>
                       <CompanyForm
                         company={c}
                         onClose={() => setEditingId(null)}
@@ -110,7 +166,9 @@ export default function AdminCompaniesPage() {
                     <td style={{ color: "var(--text-muted)" }}>{c.id}</td>
                     <td style={{ fontFamily: "monospace", fontSize: 12 }}>{c.slug}</td>
                     <td style={{ fontWeight: 600 }}>{c.name}</td>
-                    <td style={{ color: "var(--text-muted)", fontSize: 12 }}>{c.tagline}</td>
+                    <td style={{ color: "var(--text-muted)", fontSize: 12 }}>
+                      {c.tagline || "—"}
+                    </td>
                     <td>
                       {c.isActive ? (
                         <span style={{ color: "var(--accent-green)" }}>● Active</span>
@@ -119,7 +177,16 @@ export default function AdminCompaniesPage() {
                       )}
                     </td>
                     <td style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                      created {new Date(c.createdAt).toLocaleDateString()}
+                      {new Date(c.createdAt).toLocaleDateString()}
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      <Link
+                        href={`/admin/companies/${c.id}`}
+                        className="btn btn-secondary"
+                        style={{ fontSize: 11, padding: "4px 8px", textDecoration: "none" }}
+                      >
+                        Open <ArrowRight size={11} />
+                      </Link>
                     </td>
                     <td style={{ textAlign: "right" }}>
                       <button
@@ -200,13 +267,15 @@ function CompanyForm({
     tagline: company?.tagline ?? "",
     logoUrl: company?.logoUrl ?? "",
     accentColor: company?.accentColor ?? "",
+    seedVertical: "none" as VerticalKey,
     isActive: company?.isActive ?? true,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [switchedNow, setSwitchedNow] = useState(false);
 
-  const set = (k: keyof typeof form, v: string | boolean) =>
+  const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
     setForm({ ...form, [k]: v });
 
   const submit = async () => {
@@ -235,7 +304,22 @@ function CompanyForm({
       }
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Save failed");
-      onSaved();
+
+      if (isNew && j?.id) {
+        // Auto-switch to the freshly-created tenant so the operator lands
+        // inside it on the next page load.
+        await fetch("/api/companies", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: j.id }),
+        });
+        setSwitchedNow(true);
+        setTimeout(() => {
+          if (typeof window !== "undefined") window.location.href = "/admin";
+        }, 700);
+      } else {
+        onSaved();
+      }
     } catch (e) {
       setError(String(e));
     } finally {
@@ -247,7 +331,7 @@ function CompanyForm({
     if (!company) return;
     if (
       !confirm(
-        `Delete company "${company.name}" (${company.slug})?\n\nThis is permanent. All its products, orders, suppliers, expenses, settings, categories, and units will be removed. Customers and riders are shared so they're untouched.\n\nType DELETE to confirm.`
+        `Delete company "${company.name}" (${company.slug})?\n\nThis is permanent. All its products, orders, suppliers, expenses, settings, categories, and units will be removed. Customers and riders are shared so they're untouched.`
       )
     )
       return;
@@ -279,7 +363,7 @@ function CompanyForm({
           />
         </div>
         <div>
-          <label>Display name</label>
+          <label>Display name *</label>
           <input
             value={form.name}
             onChange={(e) => set("name", e.target.value)}
@@ -304,13 +388,90 @@ function CompanyForm({
         </div>
         <div>
           <label>Accent color</label>
-          <input
-            value={form.accentColor}
-            onChange={(e) => set("accentColor", e.target.value)}
-            placeholder="#4d9e47"
-          />
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              value={form.accentColor}
+              onChange={(e) => set("accentColor", e.target.value)}
+              placeholder="#4d9e47"
+              style={{ flex: 1 }}
+            />
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 6,
+                border: "1px solid var(--border)",
+                background:
+                  form.accentColor &&
+                  /^#?[0-9a-fA-F]{3,8}$/.test(form.accentColor)
+                    ? form.accentColor.startsWith("#")
+                      ? form.accentColor
+                      : `#${form.accentColor}`
+                    : "var(--bg-elevated, #2a2a2a)",
+                flexShrink: 0,
+              }}
+            />
+          </div>
         </div>
-        <div style={{ gridColumn: "span 2", display: "flex", alignItems: "center", gap: 8 }}>
+        {isNew && (
+          <div style={{ gridColumn: "span 2" }}>
+            <label>
+              <Sparkles size={11} style={{ verticalAlign: "-1px", marginRight: 4 }} />
+              Starter categories (optional)
+            </label>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                gap: 8,
+              }}
+            >
+              {VERTICAL_TEMPLATES.map((t) => {
+                const active = form.seedVertical === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    type="button"
+                    onClick={() => set("seedVertical", t.key)}
+                    style={{
+                      textAlign: "left",
+                      padding: "10px 12px",
+                      borderRadius: 8,
+                      border: `1px solid ${active ? "var(--accent-green)" : "var(--border)"}`,
+                      background: active
+                        ? "rgba(77, 158, 71, 0.16)"
+                        : "var(--bg-primary)",
+                      color: "var(--text-primary)",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{t.label}</div>
+                    <div
+                      style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}
+                    >
+                      {t.description}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <div
+              style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}
+            >
+              Every new tenant starts with kg + pcs units regardless. Pick a
+              template to seed matching categories at create-time.
+            </div>
+          </div>
+        )}
+        <div
+          style={{
+            gridColumn: "span 2",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
           <input
             id="active-toggle"
             type="checkbox"
@@ -340,9 +501,19 @@ function CompanyForm({
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
+      <div
+        style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}
+      >
         <button className="btn btn-primary" onClick={submit} disabled={saving}>
-          <Save size={13} /> {saving ? "Saving…" : isNew ? "Create company" : "Save changes"}
+          <Save size={13} />
+          {" "}
+          {saving
+            ? "Saving…"
+            : switchedNow
+            ? "Created + switching…"
+            : isNew
+            ? "Create business"
+            : "Save changes"}
         </button>
         <button className="btn btn-secondary" onClick={onClose} disabled={saving}>
           <X size={13} /> Cancel

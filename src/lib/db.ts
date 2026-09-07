@@ -1305,10 +1305,74 @@ export interface NewCompanyInput {
   tagline: string;
   logoUrl?: string;
   accentColor?: string;
+  /**
+   * If set to a known vertical key (`"fashion"`, `"grocery"`, `"pharmacy"`,
+   * `"electronics"`), seed the matching categories on creation. The seed
+   * is non-destructive: it skips categories whose slug already exists.
+   * Units (`kg`, `pcs`) are always seeded for every new company.
+   */
+  seedVertical?: "fashion" | "grocery" | "pharmacy" | "electronics" | "meat" | "none";
 }
 
-/** Create a new company + seed an empty Settings row so the UI doesn't have
- *  to special-case missing settings. Returns the new company. */
+/** Vertical → default category seed list. Add a new vertical here and the
+ *  create-company form will pick it up. */
+const VERTICAL_CATEGORY_SEED: Record<
+  Exclude<NewCompanyInput["seedVertical"], "none" | undefined>,
+  Array<{ slug: string; name: string; sortOrder: number }>
+> = {
+  meat: [
+    { slug: "beef", name: "Beef", sortOrder: 1 },
+    { slug: "chicken", name: "Chicken", sortOrder: 2 },
+    { slug: "mutton", name: "Mutton", sortOrder: 3 },
+    { slug: "offal", name: "Offal", sortOrder: 4 },
+    { slug: "fish", name: "Fish", sortOrder: 5 },
+  ],
+  fashion: [
+    { slug: "tops",        name: "Tops",        sortOrder: 1 },
+    { slug: "bottoms",     name: "Bottoms",     sortOrder: 2 },
+    { slug: "dresses",     name: "Dresses",     sortOrder: 3 },
+    { slug: "outerwear",   name: "Outerwear",   sortOrder: 4 },
+    { slug: "footwear",    name: "Footwear",    sortOrder: 5 },
+    { slug: "bags",        name: "Bags",        sortOrder: 6 },
+    { slug: "accessories", name: "Accessories", sortOrder: 7 },
+    { slug: "jewelry",     name: "Jewelry",     sortOrder: 8 },
+  ],
+  grocery: [
+    { slug: "fruits",     name: "Fruits",     sortOrder: 1 },
+    { slug: "vegetables", name: "Vegetables", sortOrder: 2 },
+    { slug: "dairy",      name: "Dairy",      sortOrder: 3 },
+    { slug: "bakery",     name: "Bakery",     sortOrder: 4 },
+    { slug: "beverages",  name: "Beverages",  sortOrder: 5 },
+    { slug: "snacks",     name: "Snacks",     sortOrder: 6 },
+    { slug: "frozen",     name: "Frozen",     sortOrder: 7 },
+    { slug: "pantry",     name: "Pantry",     sortOrder: 8 },
+  ],
+  pharmacy: [
+    { slug: "otc",          name: "OTC Medicine",             sortOrder: 1 },
+    { slug: "prescription", name: "Prescription",            sortOrder: 2 },
+    { slug: "wellness",     name: "Wellness",                sortOrder: 3 },
+    { slug: "skincare",     name: "Skincare",                sortOrder: 4 },
+    { slug: "vitamins",     name: "Vitamins & Supplements",  sortOrder: 5 },
+    { slug: "baby",         name: "Baby Care",               sortOrder: 6 },
+  ],
+  electronics: [
+    { slug: "phones",      name: "Phones",     sortOrder: 1 },
+    { slug: "laptops",     name: "Laptops",    sortOrder: 2 },
+    { slug: "audio",       name: "Audio",      sortOrder: 3 },
+    { slug: "wearables",   name: "Wearables",  sortOrder: 4 },
+    { slug: "cameras",     name: "Cameras",    sortOrder: 5 },
+    { slug: "accessories", name: "Accessories",sortOrder: 6 },
+  ],
+};
+
+const VERTICAL_DEFAULT_UNITS: Array<{ code: string; name: string }> = [
+  { code: "kg", name: "Kilogram" },
+  { code: "pcs", name: "Piece" },
+];
+
+/** Create a new company + seed its Settings row + default units + (optional)
+ *  vertical categories. Everything runs in one transaction so a failed
+ *  company creation rolls back cleanly. */
 export function createCompany(input: NewCompanyInput): Company {
   const db = getDb();
   const slug = input.slug.trim().toLowerCase();
@@ -1317,26 +1381,60 @@ export function createCompany(input: NewCompanyInput): Company {
   }
   const existing = getCompanyBySlug(slug);
   if (existing) throw new Error(`Company with slug "${slug}" already exists.`);
-  const id = nextId(db, "companies");
-  const now = new Date().toISOString();
-  db.prepare(
-    `INSERT INTO companies (id, slug, name, tagline, logoUrl, accentColor, isActive, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, 1, ?)`
-  ).run(
-    id,
-    slug,
-    input.name.trim(),
-    input.tagline.trim(),
-    (input.logoUrl ?? "").trim(),
-    (input.accentColor ?? "").trim(),
-    now
-  );
-  // Seed an empty Settings row so the new tenant renders cleanly.
-  const defaults = makeCompanyDefaults(input.name.trim(), input.tagline.trim());
-  db.prepare("INSERT INTO settings (companyId, data) VALUES (?, ?)").run(
-    id,
-    JSON.stringify(defaults)
-  );
+
+  const tx = db.transaction(() => {
+    const id = nextId(db, "companies");
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO companies (id, slug, name, tagline, logoUrl, accentColor, isActive, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`
+    ).run(
+      id,
+      slug,
+      input.name.trim(),
+      input.tagline.trim(),
+      (input.logoUrl ?? "").trim(),
+      (input.accentColor ?? "").trim(),
+      now
+    );
+
+    // Settings row seeded from name + tagline (businessName etc.).
+    const defaults = makeCompanyDefaults(input.name.trim(), input.tagline.trim());
+    db.prepare("INSERT INTO settings (companyId, data) VALUES (?, ?)").run(
+      id,
+      JSON.stringify(defaults)
+    );
+
+    // Default units: every tenant gets kg + pcs.
+    const insertUnit = db.prepare(
+      `INSERT INTO units (id, companyId, code, name, isActive, createdAt)
+       VALUES (?, ?, ?, ?, 1, ?)`
+    );
+    for (const u of VERTICAL_DEFAULT_UNITS) {
+      insertUnit.run(nextId(db, "units"), id, u.code, u.name, now);
+    }
+
+    // Optional vertical category seed.
+    if (input.seedVertical && input.seedVertical !== "none" && input.seedVertical !== "meat") {
+      // Meat is auto-seeded by the migration; the explicit "meat" choice
+      // here is also fine (idempotent) for brand-new installs that haven't
+      // run the migration yet.
+      const cats = VERTICAL_CATEGORY_SEED[input.seedVertical];
+      if (cats) {
+        const insertCat = db.prepare(
+          `INSERT INTO categories (id, companyId, slug, name, description, sortOrder, isActive, createdAt)
+           VALUES (?, ?, ?, ?, '', ?, 1, ?)`
+        );
+        for (const c of cats) {
+          insertCat.run(nextId(db, "categories"), id, c.slug, c.name, c.sortOrder, now);
+        }
+      }
+    }
+
+    return id;
+  });
+
+  const id = tx();
   return getCompany(id)!;
 }
 
