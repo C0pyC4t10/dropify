@@ -4,7 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "@/types/next";
 import { Printer, ArrowLeft, Bike, Download, CalendarRange } from "lucide-react";
-import type { Rider, Order } from "@/lib/types";
+import type { Rider, Order, Settings } from "@/lib/types";
 import { formatMoney } from "@/lib/ui";
 
 /** BD-time YYYY-MM-DD for "today" */
@@ -54,6 +54,7 @@ function ManifestContent() {
 
   const [rider, setRider] = useState<Rider | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [from, setFrom] = useState<string>(queryFrom || queryDate);
@@ -62,13 +63,15 @@ function ManifestContent() {
   useEffect(() => {
     (async () => {
       try {
-        const [r, o] = await Promise.all([
+        const [r, o, s] = await Promise.all([
           fetch("/api/riders").then((r) => r.json()),
           fetch("/api/orders").then((r) => r.json()),
+          fetch("/api/settings").then((r) => r.json()),
         ]);
         const found = (r as Rider[]).find((x) => x.id === riderId) || null;
         setRider(found);
         setOrders(o as Order[]);
+        setSettings(s);
       } finally {
         setLoading(false);
       }
@@ -354,8 +357,8 @@ function ManifestContent() {
             borderBottom: "2px solid #000",
           }}
         >
-          <div style={{ fontSize: 18, fontWeight: 800, color: "#000", marginBottom: 2 }}>Bazarey Ltd</div>
-          <div style={{ fontSize: 11, color: "#555" }}>Meat Delivery Operations · 01932367356</div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: "#000", marginBottom: 2 }}>{settings?.businessName || ""}</div>
+          <div style={{ fontSize: 11, color: "#555" }}>{settings?.tagline || ""}{settings?.phone ? ` · ${settings.phone}` : ""}</div>
           <div style={{ fontSize: 13, fontWeight: 700, marginTop: 4, color: "#000" }}>
             DELIVERY MANIFEST · {rangeLabel}
           </div>
@@ -650,7 +653,7 @@ function ManifestContent() {
         </div>
 
         <div style={{ textAlign: "center", marginTop: 24, fontSize: 11, color: "#666" }}>
-          Generated {new Date().toLocaleString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: true })} · Bazarey Meat Delivery Ops
+          Generated {new Date().toLocaleString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: true })} · {settings?.businessName || "Delivery Ops"}
         </div>
       </div>
     </div>

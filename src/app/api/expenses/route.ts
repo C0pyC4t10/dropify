@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createExpense, getExpenses } from "@/lib/db";
 import type { ExpenseCategory, ExpensePaymentMethod } from "@/lib/types";
+import { getCompanyIdFromRequest } from "@/lib/tenant";
 
 const ALLOWED_CATEGORIES: ExpenseCategory[] = [
   "utilities",
@@ -17,6 +18,7 @@ const ALLOWED_CATEGORIES: ExpenseCategory[] = [
 const ALLOWED_METHODS: ExpensePaymentMethod[] = ["cash", "bkash", "bank", "other"];
 
 export async function GET(request: Request) {
+  const companyId = await getCompanyIdFromRequest(request);
   const { searchParams } = new URL(request.url);
   const from = searchParams.get("from") || undefined;
   const to = searchParams.get("to") || undefined;
@@ -24,7 +26,7 @@ export async function GET(request: Request) {
   const limitStr = searchParams.get("limit");
   const limit = limitStr ? parseInt(limitStr, 10) : undefined;
 
-  const list = getExpenses({
+  const list = getExpenses(companyId, {
     from,
     to,
     category: category as ExpenseCategory | "all" | undefined,
@@ -35,6 +37,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const companyId = await getCompanyIdFromRequest(request);
     const body = (await request.json()) as {
       date?: string;
       category?: string;
@@ -73,7 +76,7 @@ export async function POST(request: Request) {
       paymentMethod: body.paymentMethod as ExpensePaymentMethod | undefined,
       note: body.note,
       createdBy: body.createdBy,
-    });
+    }, companyId);
     return NextResponse.json(expense, { status: 201 });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

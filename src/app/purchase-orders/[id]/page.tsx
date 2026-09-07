@@ -145,7 +145,7 @@ export default function PurchaseOrderDetail() {
       <div className="print-area card" style={{ padding: 28, marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "2px solid #000", paddingBottom: 14, marginBottom: 14 }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{settings?.businessName || "Bazarey Ltd"}</h2>
+            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{settings?.businessName || ""}</h2>
             <p style={{ margin: "4px 0 0", fontSize: 11, color: "#444" }}>{settings?.tagline}</p>
             <p style={{ margin: "2px 0 0", fontSize: 11, color: "#444" }}>{settings?.address} · {settings?.phone}</p>
           </div>
@@ -168,7 +168,7 @@ export default function PurchaseOrderDetail() {
           </div>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontWeight: 600, marginBottom: 4 }}>Ship To</div>
-            <div style={{ fontWeight: 600 }}>{settings?.businessName || "Bazarey Ltd"}</div>
+            <div style={{ fontWeight: 600 }}>{settings?.businessName || ""}</div>
             <div>{settings?.address}</div>
             <div>{settings?.phone}</div>
           </div>
@@ -226,7 +226,7 @@ export default function PurchaseOrderDetail() {
         </div>
 
         <p style={{ margin: "24px 0 0", fontSize: 10, color: "#666", textAlign: "center" }}>
-          Please confirm receipt and delivery date. {settings?.businessName || "Bazarey Ltd"}.
+          Please confirm receipt and delivery date. {settings?.businessName || ""}.
         </p>
       </div>
     </div>

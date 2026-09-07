@@ -1,6 +1,9 @@
 "use client";
 
-import { Beef, Phone, Mail } from "lucide-react";
+import { Beef, Phone, Mail, Building2 } from "lucide-react";
+import { useActiveCompany } from "@/lib/active-company";
+import { useEffect, useState } from "react";
+import type { Settings } from "@/lib/types";
 
 interface FooterProps {
   className?: string;
@@ -8,6 +11,31 @@ interface FooterProps {
 
 export function Footer({ className = "" }: FooterProps) {
   const year = new Date().getFullYear();
+  const { activeCompany, activeCompanyId } = useActiveCompany();
+  const [settings, setSettings] = useState<Settings | null>(null);
+
+  // Re-read settings whenever the active company changes.
+  useEffect(() => {
+    if (activeCompanyId == null) return;
+    let cancelled = false;
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((j) => {
+        if (!cancelled) setSettings(j);
+      })
+      .catch(() => {
+        if (!cancelled) setSettings(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCompanyId]);
+
+  const companyName = settings?.businessName ?? activeCompany?.name ?? "Delivery Ops";
+  const phone = settings?.phone || "";
+  const isMeat = activeCompany?.slug === "meat";
+  const Icon = isMeat ? Beef : Building2;
+
   return (
     <footer
       className={`permanent-footer ${className}`.trim()}
@@ -34,28 +62,26 @@ export function Footer({ className = "" }: FooterProps) {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Beef size={16} color="var(--accent-red)" />
-          <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>Bazarey Ltd</span>
-          <span style={{ color: "var(--text-muted)" }}>· Meat Delivery Ops</span>
+          <Icon size={16} color="var(--accent-red)" />
+          <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{companyName}</span>
+          {activeCompany?.tagline && (
+            <span style={{ color: "var(--text-muted)" }}>· {activeCompany.tagline}</span>
+          )}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-          <a
-            href="tel:01932367356"
-            style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "var(--text-secondary)", textDecoration: "none" }}
-          >
-            <Phone size={12} /> 01932367356
-          </a>
-          <a
-            href="mailto:bazarey2026@gmail.com"
-            style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "var(--text-secondary)", textDecoration: "none" }}
-          >
-            <Mail size={12} /> bazarey2026@gmail.com
-          </a>
+          {phone && (
+            <a
+              href={`tel:${phone}`}
+              style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "var(--text-secondary)", textDecoration: "none" }}
+            >
+              <Phone size={12} /> {phone}
+            </a>
+          )}
         </div>
 
         <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
-          © {year} Bazarey Ltd · All rights reserved
+          © {year} {companyName} · All rights reserved
         </div>
       </div>
     </footer>

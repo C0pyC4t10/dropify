@@ -19,8 +19,11 @@ import {
   X,
   Map,
   Wallet,
+  Building2,
+  ChevronDown,
 } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
+import { useActiveCompany } from "@/lib/active-company";
 
 // Live wall-clock widget — renders a placeholder on first paint to avoid
 // hydration mismatch (server has no clock), then ticks every second once
@@ -132,13 +135,16 @@ const NAV = [
   { href: "/expenses", label: "Expenses", icon: Wallet },
   { href: "/riders", label: "Riders", icon: Bike },
   { href: "/customers", label: "Customers", icon: Users },
+  { href: "/companies", label: "Companies", icon: Building2 },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function Header({ className = "" }: { className?: string }) {
   const pathname = usePathname();
   const { theme, toggle } = useTheme();
+  const { activeCompany, companies, setActiveCompanyId } = useActiveCompany();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
@@ -160,6 +166,16 @@ export function Header({ className = "" }: { className?: string }) {
     };
   }, [drawerOpen]);
 
+  // Update document.title so the browser tab reflects the active company.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (activeCompany) {
+      document.title = `${activeCompany.name} — Ops`;
+    } else {
+      document.title = "Delivery Ops";
+    }
+  }, [activeCompany]);
+
   const headerStyle: React.CSSProperties = {
     borderBottom: "1px solid var(--border)",
     background: "rgba(22, 28, 23, 0.78)",
@@ -179,16 +195,123 @@ export function Header({ className = "" }: { className?: string }) {
     zIndex: 30,
   };
 
+  // Fallback while /api/companies loads — show generic wordmark.
+  const companyName = activeCompany?.name ?? "Delivery Ops";
+
   return (
     <>
       <header className={`permanent-header ${className}`.trim()} style={headerStyle}>
-        <Link href="/" style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}>
-          <Beef size={20} color="var(--accent-red)" />
-          <span style={{ fontWeight: 700, fontSize: 15, color: "var(--text-primary)" }}>
-            Meat<span style={{ color: "var(--accent-green)" }}> Delivery</span>{" "}
-            <span style={{ color: "var(--text-muted)", fontWeight: 500, fontSize: 12 }}>Ops</span>
-          </span>
-        </Link>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Link
+            href="/"
+            style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}
+          >
+            {activeCompany?.slug === "meat" ? (
+              <Beef size={20} color="var(--accent-red)" />
+            ) : (
+              <Building2 size={20} color="var(--accent-green)" />
+            )}
+            <span style={{ fontWeight: 700, fontSize: 15, color: "var(--text-primary)" }}>
+              {companyName}
+            </span>
+          </Link>
+
+          {companies.length > 1 && (
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={() => setSwitcherOpen((s) => !s)}
+                title="Switch company"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid var(--border)",
+                  color: "var(--text-secondary)",
+                  borderRadius: 6,
+                  padding: "4px 8px",
+                  cursor: "pointer",
+                  fontSize: 11,
+                  fontWeight: 500,
+                }}
+              >
+                Switch
+                <ChevronDown
+                  size={12}
+                  style={{ transform: switcherOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s" }}
+                />
+              </button>
+              {switcherOpen && (
+                <>
+                  <div
+                    onClick={() => setSwitcherOpen(false)}
+                    style={{ position: "fixed", inset: 0, zIndex: 40 }}
+                  />
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% + 6px)",
+                      left: 0,
+                      minWidth: 220,
+                      background: "var(--bg-card)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 8,
+                      boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
+                      zIndex: 50,
+                      padding: 4,
+                    }}
+                  >
+                    {companies.map((c) => (
+                      <button
+                        key={c.id}
+                        onClick={() => {
+                          setSwitcherOpen(false);
+                          setActiveCompanyId(c.id);
+                        }}
+                        style={{
+                          display: "block",
+                          width: "100%",
+                          textAlign: "left",
+                          padding: "8px 10px",
+                          border: "none",
+                          background:
+                            c.id === activeCompany?.id ? "rgba(77,158,71,0.18)" : "transparent",
+                          color: "var(--text-primary)",
+                          fontSize: 13,
+                          borderRadius: 6,
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        <div style={{ fontWeight: c.id === activeCompany?.id ? 600 : 500 }}>{c.name}</div>
+                        {c.tagline && (
+                          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                            {c.tagline}
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                    <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />
+                    <Link
+                      href="/companies"
+                      onClick={() => setSwitcherOpen(false)}
+                      style={{
+                        display: "block",
+                        padding: "8px 10px",
+                        color: "var(--text-secondary)",
+                        textDecoration: "none",
+                        fontSize: 12,
+                        borderRadius: 6,
+                      }}
+                    >
+                      Manage companies…
+                    </Link>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
 
         <div className="nav-desktop" style={{ marginLeft: 16, display: "flex", alignItems: "center" }}>
           <LiveClock />
@@ -282,7 +405,7 @@ export function Header({ className = "" }: { className?: string }) {
           <div className="nav-drawer-overlay" onClick={() => setDrawerOpen(false)} />
           <aside className="nav-drawer">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <span style={{ fontWeight: 700, fontSize: 14, color: "var(--text-primary)" }}>Menu</span>
+              <span style={{ fontWeight: 700, fontSize: 14, color: "var(--text-primary)" }}>{companyName}</span>
               <button
                 onClick={() => setDrawerOpen(false)}
                 aria-label="Close menu"
@@ -291,10 +414,9 @@ export function Header({ className = "" }: { className?: string }) {
                   border: "1px solid var(--border)",
                   color: "var(--text-secondary)",
                   borderRadius: 6,
-                  padding: "6px",
+                  padding: 6,
                   cursor: "pointer",
                   display: "flex",
-                  alignItems: "center",
                 }}
               >
                 <X size={16} />
@@ -310,6 +432,12 @@ export function Header({ className = "" }: { className?: string }) {
                 </Link>
               );
             })}
+            {companies.length > 1 && (
+              <Link href="/companies">
+                <Building2 size={18} />
+                Switch company
+              </Link>
+            )}
           </aside>
         </>
       )}

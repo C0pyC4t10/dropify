@@ -3,6 +3,7 @@ import { getShopLocation, todayStr, getOrders, getUnassignedOrders } from "@/lib
 import { haversineMeters, roadRoute } from "@/lib/geo";
 import { getQuadrantFromRef, getQuadrantFromCenter } from "@/lib/area-centroids";
 import type { Order } from "@/lib/types";
+import { getCompanyIdFromRequest } from "@/lib/tenant";
 
 /**
  * GET /api/routes/preview
@@ -17,6 +18,7 @@ import type { Order } from "@/lib/types";
  *   - scope=all|unassigned|assigned (optional, default "all")
  */
 export async function GET(request: Request) {
+  const companyId = await getCompanyIdFromRequest(request);
   const url = new URL(request.url);
   const date = url.searchParams.get("date") || todayStr();
   const selectedIdsRaw = url.searchParams.get("selectedIds");
@@ -31,13 +33,13 @@ export async function GET(request: Request) {
         .map((s) => Number(s))
         .filter((n) => Number.isFinite(n)),
     );
-    const allOrders = getOrders();
+    const allOrders = getOrders(companyId);
     orders = allOrders.filter((o) => wanted.has(o.id));
     skippedDateMismatch = orders.filter((o) => o.date !== date).length;
   } else if (scope === "unassigned") {
-    orders = getUnassignedOrders(date);
+    orders = getUnassignedOrders(date, companyId);
   } else {
-    orders = getOrders().filter(
+    orders = getOrders(companyId).filter(
       (o) =>
         o.date === date &&
         o.deliveryMode !== "pathao" &&
@@ -47,7 +49,7 @@ export async function GET(request: Request) {
     );
   }
 
-  const shop = getShopLocation();
+  const shop = getShopLocation(companyId);
 
   // Compute per-order distance via OSRM in batches (origin → each stop)
   // and group by direction. OSRM is cached per coord-pair, so multiple

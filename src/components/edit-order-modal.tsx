@@ -24,7 +24,7 @@ export function EditOrderModal({ order, products, customers, onClose, onSaved }:
   const [customerName, setCustomerName] = useState(order.customerName);
   const [customerPhone, setCustomerPhone] = useState(order.customerPhone);
   const [area, setArea] = useState(
-    DHAKA_AREAS_FLAT.some((a) => a.toLowerCase() === (order.area || "").toLowerCase()) ? order.area || "Aftabnagar" : "Other"
+    DHAKA_AREAS_FLAT.some((a) => a.toLowerCase() === (order.area || "").toLowerCase()) ? order.area || "" : "Other"
   );
   const [customArea, setCustomArea] = useState(
     DHAKA_AREAS_FLAT.some((a) => a.toLowerCase() === (order.area || "").toLowerCase()) ? "" : order.area || ""
@@ -284,7 +284,7 @@ export function EditOrderModal({ order, products, customers, onClose, onSaved }:
                   <td>
                     <select value={r.productId} onChange={(e) => onPickProduct(idx, e.target.value)}>
                       {products.map((p) => (
-                        <option key={p.id} value={p.id}>{p.name} — {p.nameBn}</option>
+                        <option key={p.id} value={p.id}>{p.name}{p.nameBn ? ` — ${p.nameBn}` : ""}</option>
                       ))}
                     </select>
                   </td>

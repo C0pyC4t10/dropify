@@ -5,8 +5,11 @@ import {
   clearRiderPlan,
   getShopLocation,
   todayStr,
+  getOrder,
+  getUnassignedOrders,
 } from "@/lib/db";
 import { optimizeRoute, recomputeLegs, type Stop } from "@/lib/geo";
+import { getCompanyIdFromRequest } from "@/lib/tenant";
 
 /**
  * GET /api/routes/[riderId]
@@ -18,6 +21,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ riderId: string }> },
 ) {
+  const companyId = await getCompanyIdFromRequest(request);
   const { riderId: idParam } = await params;
   const riderId = Number(idParam);
   if (!Number.isFinite(riderId)) {
@@ -25,8 +29,8 @@ export async function GET(
   }
   const url = new URL(request.url);
   const date = url.searchParams.get("date") || todayStr();
-  const orders = getRiderPlanOrders(riderId, date);
-  const shop = getShopLocation();
+  const orders = getRiderPlanOrders(riderId, date, companyId);
+  const shop = getShopLocation(companyId);
   return NextResponse.json({ riderId, date, shop, orders });
 }
 
@@ -43,6 +47,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ riderId: string }> },
 ) {
+  const companyId = await getCompanyIdFromRequest(request);
   const { riderId: idParam } = await params;
   const riderId = Number(idParam);
   if (!Number.isFinite(riderId)) {
@@ -56,22 +61,20 @@ export async function POST(
 
     if (orderIds.length === 0) {
       // Treat as a "clear all" intent.
-      const cleared = clearRiderPlan(riderId);
+      const cleared = clearRiderPlan(riderId, companyId);
       return NextResponse.json({ riderId, date, cleared, sequence: [] });
     }
 
     // Read the orders to get their coordinates.
-    const existing = getRiderPlanOrders(riderId, date);
+    const existing = getRiderPlanOrders(riderId, date, companyId);
     const existingById = new Map(existing.map((o) => [o.id, o]));
 
-    // Also need to pull the unassigned orders the caller wants to add.
-    const { getOrder, getUnassignedOrders } = await import("@/lib/db");
-    const unassigned = getUnassignedOrders(date);
+    const unassigned = getUnassignedOrders(date, companyId);
     const unassignedById = new Map(unassigned.map((o) => [o.id, o]));
 
     const orders: Array<{ id: number; lat: number | null; lng: number | null }> = [];
     for (const id of orderIds) {
-      const o = existingById.get(id) ?? unassignedById.get(id) ?? getOrder(id);
+      const o = existingById.get(id) ?? unassignedById.get(id) ?? getOrder(id, companyId);
       if (!o) continue;
       if (o.deliveryMode === "pathao") continue;
       if (o.status === "delivered" || o.status === "cancelled" || o.status === "pending-approval") continue;
@@ -85,7 +88,7 @@ export async function POST(
       );
     }
 
-    const shop = getShopLocation();
+    const shop = getShopLocation(companyId);
     let sequence: number[];
     if (autoOptimize) {
       const stops: Stop[] = orders.map((o) => ({ orderId: o.id, coord: { lat: o.lat!, lng: o.lng! } }));
@@ -102,7 +105,7 @@ export async function POST(
     }
 
     const plan = sequence.map((id, i) => ({ orderId: id, seq: i + 1 }));
-    const { updated, unassigned: unassignedCount } = setRiderPlan(riderId, plan);
+    const { updated, unassigned: unassignedCount } = setRiderPlan(riderId, plan, companyId);
 
     // Recompute legs for the response
     const byId = new Map(orders.map((o) => [o.id, { orderId: o.id, coord: { lat: o.lat!, lng: o.lng! } }]));
@@ -128,14 +131,15 @@ export async function POST(
  * Clear all assignments for this rider.
  */
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ riderId: string }> },
 ) {
+  const companyId = await getCompanyIdFromRequest(request);
   const { riderId: idParam } = await params;
   const riderId = Number(idParam);
   if (!Number.isFinite(riderId)) {
     return NextResponse.json({ error: "Invalid riderId" }, { status: 400 });
   }
-  const cleared = clearRiderPlan(riderId);
+  const cleared = clearRiderPlan(riderId, companyId);
   return NextResponse.json({ riderId, cleared });
 }

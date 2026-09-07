@@ -438,15 +438,15 @@ function OrderDetailInner() {
       <div className="print-area card" style={{ padding: 20, marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "2px solid #000", paddingBottom: 12, marginBottom: 12 }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Deshi Shadh</h2>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>{settings?.businessName || ""}</h2>
             <p style={{ margin: "4px 0 0", fontSize: 11, color: "#444" }}>
-              Fresh meat, doorstep delivery
+              {settings?.tagline || ""}
             </p>
             <p style={{ margin: "2px 0 0", fontSize: 11, color: "#444" }}>
               Merul Badda Near Kacha Bazar, Dhaka
             </p>
             <p style={{ margin: "2px 0 0", fontSize: 11, color: "#444" }}>
-              ☎ +880 1851-046310 · 🌐 deshishadhbd.com
+              ☎ ${settings?.phone || ""} · 🌐 deshishadhbd.com
             </p>
           </div>
           <div style={{ textAlign: "right" }}>
@@ -635,10 +635,10 @@ function OrderDetailInner() {
             Thank you for your order!
           </div>
           <div style={{ fontSize: 11, marginTop: 2 }}>
-            For questions or reorder: ☎ +880 1851-046310 · 🌐 deshishadhbd.com
+            For questions or reorder: ☎ ${settings?.phone || ""} · 🌐 deshishadhbd.com
           </div>
           <div style={{ fontSize: 10, marginTop: 2, fontStyle: "italic" }}>
-            {settings?.invoiceNote || "Fresh meat, doorstep delivery."}
+            {settings?.invoiceNote || settings?.tagline || ""}
           </div>
         </div>
       </div>

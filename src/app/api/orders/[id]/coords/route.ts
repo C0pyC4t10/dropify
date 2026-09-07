@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { updateOrder } from "@/lib/db";
+import { getCompanyIdFromRequest } from "@/lib/tenant";
 
 /**
  * PUT /api/orders/[id]/coords
@@ -15,6 +16,7 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const companyId = await getCompanyIdFromRequest(request);
   const { id: idParam } = await params;
   const id = Number(idParam);
   if (!Number.isFinite(id)) {
@@ -37,7 +39,7 @@ export async function PUT(
         { status: 400 },
       );
     }
-    const order = updateOrder(id, { lat, lng });
+    const order = updateOrder(id, { lat, lng }, companyId);
     if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
     return NextResponse.json(order);
   } catch (e) {

@@ -239,7 +239,7 @@ function OrdersPageContent() {
       title: "Order Items Report",
       subtitle: exportSubtitle,
       businessName: settings?.businessName || "Bazarey Meat Delivery",
-      tagline: settings?.tagline || "Fresh meat, doorstep delivery",
+      tagline: settings?.tagline || "",
     });
   };
 
@@ -261,7 +261,7 @@ function OrdersPageContent() {
       title: "Inventory Aggregate (by product, all dates)",
       subtitle: exportSubtitle,
       businessName: settings?.businessName || "Bazarey Meat Delivery",
-      tagline: settings?.tagline || "Fresh meat, doorstep delivery",
+      tagline: settings?.tagline || "",
     });
   };
 
@@ -426,7 +426,7 @@ function OrdersPageContent() {
             subtitle={exportSubtitle}
             orientation="landscape"
             businessName={settings?.businessName || "Bazarey Meat Delivery"}
-            tagline={settings?.tagline || "Fresh meat, doorstep delivery"}
+            tagline={settings?.tagline || ""}
             label={hasSelection ? `Export ${selectedIds.size} selected` : "Export"}
           />
           <Link href="/orders/quick" className="btn btn-secondary" style={{ textDecoration: "none" }}>

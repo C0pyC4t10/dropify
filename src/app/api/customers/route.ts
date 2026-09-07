@@ -6,12 +6,14 @@ import {
   getOrderStatsForCustomer,
 } from "@/lib/db";
 import { normalizePhone } from "@/lib/phone";
+import { getCompanyIdFromRequest } from "@/lib/tenant";
 
 // GET /api/customers → list
 // GET /api/customers?phone=01711234567 → uniqueness check (returns existing or null)
 // When a match is found, the response also includes `stats` so order-creation
 // forms can show "received / cancelled" counts inline as the user types.
 export async function GET(request: Request) {
+  const companyId = await getCompanyIdFromRequest(request);
   const url = new URL(request.url);
   const phoneParam = url.searchParams.get("phone");
   if (phoneParam !== null) {
@@ -22,7 +24,7 @@ export async function GET(request: Request) {
     if (!existing) {
       return NextResponse.json({ match: null });
     }
-    const stats = getOrderStatsForCustomer(existing.id);
+    const stats = getOrderStatsForCustomer(existing.id, companyId);
     return NextResponse.json({
       match: {
         id: existing.id,

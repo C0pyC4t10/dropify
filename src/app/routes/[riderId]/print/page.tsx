@@ -119,7 +119,7 @@ function PrintContent() {
         {/* Header */}
         <div style={{ borderBottom: "2px solid #000", paddingBottom: 12, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
-            <div style={{ fontSize: 22, fontWeight: 800 }}>{settings?.businessName ?? "Bazarey Ltd"}</div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>{settings?.businessName ?? ""}</div>
             <div style={{ fontSize: 12, color: "#444" }}>Route Plan · {rider.name} · {date}</div>
           </div>
           <div style={{ textAlign: "right", fontSize: 11, color: "#444" }}>

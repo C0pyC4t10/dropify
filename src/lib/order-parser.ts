@@ -599,7 +599,23 @@ function findNameAndAddress(text: string, lines: string[]): {
 
 // ────────────────────────────── entry point ──────────────────────────────
 
-export function parseOrderFromText(input: ParseInput): ParsedOrder {
+/**
+ * Heuristic text-parser entry point. Currently tuned for the meat company:
+ * it knows Dhaka-area keywords, Bangla address markers, BD phone regexes,
+ * bKash/Nagad payment cues, and meat-default units (kg).
+ *
+ * For other companies the heuristics are noise — pass `isBanglaEnabled: false`
+ * and we skip every Bangla-specific lookup while still emitting a sensible
+ * empty ParsedOrder so the UI can render a manual entry form.
+ *
+ * Full per-company parser configuration is a future improvement; for now
+ * the meat company is the only one with active heuristics.
+ */
+export function parseOrderFromText(
+  input: ParseInput,
+  opts: { isBanglaEnabled?: boolean } = {}
+): ParsedOrder {
+  const isBanglaEnabled = opts.isBanglaEnabled ?? true;
   const text = input.text || "";
   const lines = text
     .split(/\r?\n/)
@@ -635,6 +651,13 @@ export function parseOrderFromText(input: ParseInput): ParsedOrder {
   };
 
   if (!lines.length) return result;
+
+  // Non-meat companies: skip every meat/BD-specific heuristic. We still
+  // return a valid (empty) ParsedOrder so callers don't crash — the UI
+  // should fall back to the manual form for non-meat companies.
+  if (!isBanglaEnabled) {
+    return result;
+  }
 
   // ── 1. Customer name + address (must run before phone check to skip phone-only lines)
   const na = findNameAndAddress(text, lines);

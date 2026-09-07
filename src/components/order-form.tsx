@@ -7,6 +7,7 @@ import { formatMoney, DHAKA_AREAS_FLAT, CLUSTER_COLORS, CLUSTER_SHORT, SUB_CLUST
 import { getLocationForArea } from "@/lib/locations";
 import CustomerMatchBanner, { type CustomerMatch } from "./customer-match-banner";
 import { SearchableSelect, type SearchableOption } from "./searchable-select";
+import { useActiveCompany } from "@/lib/active-company";
 
 interface Props {
   products: Product[];
@@ -25,10 +26,12 @@ interface RowItem {
 }
 
 export function OrderForm({ products, customers, settings, onClose, onSaved, embedded }: Props) {
+  const { activeCompany } = useActiveCompany();
+  const isMeat = activeCompany?.slug === "meat";
   const [customerId, setCustomerId] = useState<string>("");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
-  const [area, setArea] = useState("Aftabnagar");
+  const [area, setArea] = useState(isMeat ? "Aftabnagar" : "");
   const [customArea, setCustomArea] = useState("");
   const [address, setAddress] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -398,7 +401,7 @@ export function OrderForm({ products, customers, settings, onClose, onSaved, emb
                   <td>
                     <select value={r.productId} onChange={(e) => updateRow(idx, "productId", e.target.value)}>
                       {products.map((p) => (
-                        <option key={p.id} value={p.id}>{p.name} — {p.nameBn}</option>
+                        <option key={p.id} value={p.id}>{isMeat && p.nameBn ? `${p.name} — ${p.nameBn}` : p.name}</option>
                       ))}
                     </select>
                   </td>

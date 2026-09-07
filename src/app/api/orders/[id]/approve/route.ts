@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { approveOrder, cancelPendingOrder } from "@/lib/db";
 import { pushStatusToWoo } from "@/lib/wp-sync";
+import { getCompanyIdFromRequest } from "@/lib/tenant";
 
 /**
  * POST /api/orders/:id/approve
@@ -11,6 +12,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const companyId = await getCompanyIdFromRequest(request);
     const { id: idParam } = await params;
     const id = Number(idParam);
     const body = await request.json().catch(() => ({}));
@@ -18,9 +20,9 @@ export async function POST(
 
     let order;
     if (action === "approve") {
-      order = approveOrder(id);
+      order = approveOrder(id, companyId);
     } else {
-      order = cancelPendingOrder(id, String(body?.reason || ""));
+      order = cancelPendingOrder(id, String(body?.reason || ""), companyId);
     }
 
     if (!order) {

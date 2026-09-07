@@ -7,6 +7,7 @@ import {
   createOrder,
   findPendingOrderByWpId,
   approveOrder,
+  getCompanies,
 } from "@/lib/db";
 import type { PaymentMethod } from "@/lib/types";
 
@@ -78,10 +79,60 @@ function normalizePaymentMethod(s: string | undefined): PaymentMethod {
  *     (after deducting stock).
  */
 export async function POST(request: Request) {
-  // 1. Secret check.
+  // Buffer the body first so we can verify HMAC + parse JSON downstream.
+  const rawBody = await request.text();
+  const plainSecret = request.headers.get("x-webhook-secret") || "";
+  const wcSignature = request.headers.get("x-wc-webhook-signature") || "";
+
+  console.log("[wp-webhook] incoming request");
+  console.log("[wp-webhook]   X-Webhook-Secret       =", JSON.stringify(plainSecret));
+  console.log("[wp-webhook]   X-WC-Webhook-Signature =", JSON.stringify(wcSignature));
+  console.log("[wp-webhook]   body[0..200]           =", rawBody.slice(0, 200));
+
+  // 1. Resolve company from the inbound secret. Each company has its own
+  //    wpWebhookSecret; we walk every active company and pick the one whose
+  //    secret matches the static header OR whose stored secret produces the
+  //    same HMAC as the WC signature on this body. Once a company is matched
+  //    we verify the signature against THAT company's secret and proceed.
+  const companies = getCompanies();
+  let matchedCompanyId: number | null = null;
+  for (const c of companies) {
+    let settings;
+    try {
+      settings = getSettings(c.id);
+    } catch {
+      continue;
+    }
+    if (!settings.wpWebhookSecret) continue;
+
+    // Plain shared secret — direct equality.
+    if (plainSecret && plainSecret === settings.wpWebhookSecret) {
+      matchedCompanyId = c.id;
+      break;
+    }
+    // WooCommerce HMAC.
+    if (wcSignature) {
+      const expected = await hmacBase64(settings.wpWebhookSecret, rawBody);
+      if (timingSafeEqual(expected, wcSignature)) {
+        matchedCompanyId = c.id;
+        break;
+      }
+    }
+  }
+
+  if (matchedCompanyId == null) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Invalid webhook secret. Set X-Webhook-Secret or X-WC-Webhook-Signature.",
+      },
+      { status: 401 }
+    );
+  }
+  const companyId = matchedCompanyId;
   let settings;
   try {
-    settings = getSettings();
+    settings = getSettings(companyId);
   } catch (e) {
     return NextResponse.json(
       { ok: false, error: "Settings not configured: " + String(e) },
@@ -92,40 +143,6 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { ok: false, error: "wpWebhookSecret not set in settings." },
       { status: 503 }
-    );
-  }
-
-  // WooCommerce delivers webhooks via two auth styles. Accept both.
-  //   (a) Plain shared secret:  X-Webhook-Secret: <secret>
-  //   (b) HMAC body signature:  X-WC-Webhook-Signature: base64(HMAC-SHA256(secret, body))
-  // In either case we compare against Settings.wpWebhookSecret.
-  const plainSecret = request.headers.get("x-webhook-secret") || "";
-  const wcSignature = request.headers.get("x-wc-webhook-signature") || "";
-
-  // Body can only be read once — buffer it up front so we can both verify the
-  // HMAC signature (if WC) and parse JSON downstream.
-  const rawBody = await request.text();
-  console.log("[wp-webhook] incoming request");
-  console.log("[wp-webhook]   X-Webhook-Secret       =", JSON.stringify(plainSecret));
-  console.log("[wp-webhook]   X-WC-Webhook-Signature =", JSON.stringify(wcSignature));
-  console.log("[wp-webhook]   body[0..200]           =", rawBody.slice(0, 200));
-
-  let authOk = false;
-  let expectedSig = "";
-  if (plainSecret && plainSecret === settings.wpWebhookSecret) {
-    authOk = true;
-  } else if (wcSignature) {
-    expectedSig = await hmacBase64(settings.wpWebhookSecret, rawBody);
-    if (timingSafeEqual(expectedSig, wcSignature)) authOk = true;
-  }
-  console.log("[wp-webhook]   authOk                 =", authOk, "expectedSig=", JSON.stringify(expectedSig));
-  if (!authOk) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "Invalid webhook secret. Set X-Webhook-Secret or X-WC-Webhook-Signature.",
-      },
-      { status: 401 }
     );
   }
 
@@ -162,7 +179,7 @@ export async function POST(request: Request) {
   }
 
   // 3. Dedupe: if this WP order is already pending, return it.
-  const existing = findPendingOrderByWpId(wpOrderId);
+  const existing = findPendingOrderByWpId(wpOrderId, companyId);
   if (existing) {
     return NextResponse.json(
       {
@@ -179,7 +196,7 @@ export async function POST(request: Request) {
   // 4. Resolve SKUs to product IDs — match by SKU, then by English name, then
   //    by Bengali name, then auto-create products for unknowns so orders never
   //    get blocked by catalog drift between WP and our app.
-  const products = getProducts();
+  const products = getProducts(companyId);
   const skuMap = new Map(products.map((p) => [p.sku.toLowerCase(), p]));
   const nameMap = new Map<string, typeof products[number]>();
   const nameBnMap = new Map<string, typeof products[number]>();
@@ -221,7 +238,7 @@ export async function POST(request: Request) {
           marketPrice: Number(it.unitPrice) || 0,
           stockQty: 0,
           reorderLevel: 5,
-        } as Parameters<typeof createProduct>[0]);
+        } as Parameters<typeof createProduct>[0], companyId);
         product = created;
         skuMap.set(created.sku.toLowerCase(), created);
         if (created.name) nameMap.set(created.name.toLowerCase(), created);
@@ -263,7 +280,7 @@ export async function POST(request: Request) {
       wpOrderId,
       skipStockDeduction: true,
       initialStatus: "pending-approval",
-    });
+    }, companyId);
   } catch (e) {
     return NextResponse.json({ ok: false, error: "createOrder failed: " + String(e) }, { status: 500 });
   }
@@ -271,7 +288,7 @@ export async function POST(request: Request) {
   // 6. Optional auto-approve.
   if (settings.wpAutoApprove) {
     try {
-      approveOrder(result.order.id);
+      approveOrder(result.order.id, companyId);
     } catch (e) {
       // Surface the error in the response but still return the order.
       return NextResponse.json(

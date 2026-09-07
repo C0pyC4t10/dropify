@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Link2,
 } from "lucide-react";
+import { useActiveCompany } from "@/lib/active-company";
 import { formatMoney, DHAKA_AREAS_FLAT } from "@/lib/ui";
 import { isLikelyBdMobile, normalizePhone } from "@/lib/phone";
 
@@ -28,10 +29,12 @@ interface FormState {
 
 export default function NewCustomerPage() {
   const router = useRouter();
+  const { activeCompany } = useActiveCompany();
+  const isMeat = activeCompany?.slug === "meat";
   const [form, setForm] = useState<FormState>({
     name: "",
     phone: "",
-    area: "Aftabnagar",
+    area: isMeat ? "Aftabnagar" : "",
     customArea: "",
     address: "",
     notes: "",

@@ -8,6 +8,7 @@ import nodeThermal from "node-thermal-printer";
 import sharp from "sharp";
 import { getOrder, getSettings, getRiders } from "@/lib/db";
 import { buildReceiptPng } from "@/lib/receipt-png";
+import { getCompanyIdFromRequest } from "@/lib/tenant";
 
 /**
  * Run a CLI and capture its exit status / output. Never throws — always
@@ -56,16 +57,17 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   };
 
   try {
+    const companyId = await getCompanyIdFromRequest(_);
     const { id: idParam } = await params;
     const id = Number(idParam);
     log(`Order ${id} requested`);
 
-    const order = getOrder(id);
+    const order = getOrder(id, companyId);
     if (!order) {
       log("Order not found");
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
-    const settings = getSettings();
+    const settings = getSettings(companyId);
     log(`Settings posPrinterName="${settings.posPrinterName}"`);
     const riders = getRiders();
     const rider = order.riderId ? riders.find((r) => r.id === order.riderId) ?? null : null;

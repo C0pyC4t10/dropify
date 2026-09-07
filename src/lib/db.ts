@@ -736,6 +736,7 @@ function rowToSupplier(r: Record<string, unknown>): Supplier {
 function rowToOrder(r: Record<string, unknown>): Order {
   return {
     id: r.id as number,
+    companyId: (r.companyId as number) ?? DEFAULT_COMPANY_ID,
     orderNo: r.orderNo as string,
     date: r.date as string,
     customerId: (r.customerId as number | null) ?? null,
@@ -948,22 +949,97 @@ export function getCompanyBySlug(slug: string): Company | undefined {
   return row ? rowToCompany(row) : undefined;
 }
 
-// --- Public API: Products & Stock ---
-
-export function getProducts(): Product[] {
-  migrateFromJson();
-  const db = getDb();
-  return (db.prepare("SELECT * FROM products ORDER BY id ASC").all() as Record<string, unknown>[]).map(
-    rowToProduct
-  );
+export interface NewCompanyInput {
+  slug: string;
+  name: string;
+  tagline: string;
+  logoUrl?: string;
+  accentColor?: string;
 }
 
-export function getProduct(id: number): Product | undefined {
+/** Create a new company + seed an empty Settings row so the UI doesn't have
+ *  to special-case missing settings. Returns the new company. */
+export function createCompany(input: NewCompanyInput): Company {
+  const db = getDb();
+  const slug = input.slug.trim().toLowerCase();
+  if (!/^[a-z0-9-]{1,32}$/.test(slug)) {
+    throw new Error("Slug must be 1-32 chars, lowercase letters/digits/hyphens.");
+  }
+  const existing = getCompanyBySlug(slug);
+  if (existing) throw new Error(`Company with slug "${slug}" already exists.`);
+  const id = nextId(db, "companies");
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO companies (id, slug, name, tagline, logoUrl, accentColor, isActive, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?)`
+  ).run(
+    id,
+    slug,
+    input.name.trim(),
+    input.tagline.trim(),
+    (input.logoUrl ?? "").trim(),
+    (input.accentColor ?? "").trim(),
+    now
+  );
+  // Seed an empty Settings row so the new tenant renders cleanly.
+  const defaults = makeCompanyDefaults(input.name.trim(), input.tagline.trim());
+  db.prepare("INSERT INTO settings (companyId, data) VALUES (?, ?)").run(
+    id,
+    JSON.stringify(defaults)
+  );
+  return getCompany(id)!;
+}
+
+/** Editable fields on a Company. Slug is intentionally immutable to avoid
+ *  breaking deep links (although we don't use slugs in URLs today, it's the
+ *  right future-proofing default). */
+export function updateCompany(
+  id: number,
+  data: Partial<Pick<Company, "name" | "tagline" | "logoUrl" | "accentColor" | "isActive">>
+): Company | null {
+  const db = getDb();
+  const existing = getCompany(id);
+  if (!existing) return null;
+  const merged: Company = {
+    ...existing,
+    name: data.name !== undefined ? data.name.trim() : existing.name,
+    tagline: data.tagline !== undefined ? data.tagline.trim() : existing.tagline,
+    logoUrl: data.logoUrl !== undefined ? data.logoUrl.trim() : existing.logoUrl,
+    accentColor:
+      data.accentColor !== undefined ? data.accentColor.trim() : existing.accentColor,
+    isActive: data.isActive !== undefined ? data.isActive : existing.isActive,
+  };
+  db.prepare(
+    `UPDATE companies SET name=?, tagline=?, logoUrl=?, accentColor=?, isActive=? WHERE id=?`
+  ).run(
+    merged.name,
+    merged.tagline,
+    merged.logoUrl,
+    merged.accentColor,
+    merged.isActive ? 1 : 0,
+    id
+  );
+  return merged;
+}
+
+// --- Public API: Products & Stock ---
+
+export function getProducts(companyId: number): Product[] {
   migrateFromJson();
   const db = getDb();
-  const row = db.prepare("SELECT * FROM products WHERE id = ?").get(id) as
-    | Record<string, unknown>
-    | undefined;
+  return (
+    db
+      .prepare("SELECT * FROM products WHERE companyId = ? ORDER BY id ASC")
+      .all(companyId) as Record<string, unknown>[]
+  ).map(rowToProduct);
+}
+
+export function getProduct(id: number, companyId: number): Product | undefined {
+  migrateFromJson();
+  const db = getDb();
+  const row = db
+    .prepare("SELECT * FROM products WHERE id = ? AND companyId = ?")
+    .get(id, companyId) as Record<string, unknown> | undefined;
   return row ? rowToProduct(row) : undefined;
 }
 
@@ -971,32 +1047,38 @@ export function getProduct(id: number): Product | undefined {
  * Remove a product from the catalog. Orders keep their own line-item copies,
  * so historical orders still render correctly. Returns true on success.
  */
-export function deleteProduct(id: number): boolean {
+export function deleteProduct(id: number, companyId: number): boolean {
   const db = getDb();
-  const r = db.prepare("DELETE FROM products WHERE id = ?").run(id);
+  const r = db
+    .prepare("DELETE FROM products WHERE id = ? AND companyId = ?")
+    .run(id, companyId);
   return r.changes > 0;
 }
 
-export function createProduct(data: {
-  sku: string;
-  name: string;
-  nameBn: string;
-  category: ProductCategory;
-  unit: Unit;
-  costPrice: number;
-  sellPrice: number;
-  marketPrice: number;
-  stockQty: number;
-  reorderLevel: number;
-}): Product {
+export function createProduct(
+  data: {
+    sku: string;
+    name: string;
+    nameBn: string;
+    category: ProductCategory;
+    unit: Unit;
+    costPrice: number;
+    sellPrice: number;
+    marketPrice: number;
+    stockQty: number;
+    reorderLevel: number;
+  },
+  companyId: number
+): Product {
   const db = getDb();
   const id = nextId(db, "products");
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO products (id, sku, name, nameBn, category, unit, costPrice, sellPrice, marketPrice, stockQty, reorderLevel, isActive, updatedAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+    `INSERT INTO products (id, companyId, sku, name, nameBn, category, unit, costPrice, sellPrice, marketPrice, stockQty, reorderLevel, isActive, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
   ).run(
     id,
+    companyId,
     data.sku,
     data.name,
     data.nameBn,
@@ -1010,14 +1092,18 @@ export function createProduct(data: {
     now
   );
   db.prepare(
-    `INSERT INTO stock_movements (id, productId, type, qty, note, createdAt) VALUES (?, ?, 'purchase', ?, 'Initial stock', ?)`
-  ).run(nextId(db, "stockMovements"), id, data.stockQty, now);
-  return getProduct(id)!;
+    `INSERT INTO stock_movements (id, companyId, productId, type, qty, note, createdAt) VALUES (?, ?, ?, 'purchase', ?, 'Initial stock', ?)`
+  ).run(nextId(db, "stockMovements"), companyId, id, data.stockQty, now);
+  return getProduct(id, companyId)!;
 }
 
-export function updateProduct(id: number, data: Partial<Product>): Product | null {
+export function updateProduct(
+  id: number,
+  data: Partial<Product>,
+  companyId: number
+): Product | null {
   const db = getDb();
-  const existing = getProduct(id);
+  const existing = getProduct(id, companyId);
   if (!existing) return null;
   const merged: Product = {
     ...existing,
@@ -1026,7 +1112,7 @@ export function updateProduct(id: number, data: Partial<Product>): Product | nul
     updatedAt: new Date().toISOString(),
   };
   db.prepare(
-    `UPDATE products SET sku=?, name=?, nameBn=?, category=?, unit=?, costPrice=?, sellPrice=?, marketPrice=?, stockQty=?, reorderLevel=?, isActive=?, updatedAt=? WHERE id=?`
+    `UPDATE products SET sku=?, name=?, nameBn=?, category=?, unit=?, costPrice=?, sellPrice=?, marketPrice=?, stockQty=?, reorderLevel=?, isActive=?, updatedAt=? WHERE id=? AND companyId=?`
   ).run(
     merged.sku,
     merged.name,
@@ -1040,7 +1126,8 @@ export function updateProduct(id: number, data: Partial<Product>): Product | nul
     merged.reorderLevel,
     merged.isActive ? 1 : 0,
     merged.updatedAt,
-    id
+    id,
+    companyId
   );
   return merged;
 }
@@ -1049,39 +1136,50 @@ export function adjustStock(
   productId: number,
   type: StockMovementType,
   qty: number,
-  note: string
+  note: string,
+  companyId: number
 ): Product | null {
   const db = getDb();
-  const product = getProduct(productId);
+  const product = getProduct(productId, companyId);
   if (!product) return null;
   const delta = type === "sale" || type === "wastage" ? -qty : qty;
   const newQty = Math.max(0, product.stockQty + delta);
   const now = new Date().toISOString();
-  db.prepare("UPDATE products SET stockQty = ?, updatedAt = ? WHERE id = ?").run(
+  db.prepare("UPDATE products SET stockQty = ?, updatedAt = ? WHERE id = ? AND companyId = ?").run(
     newQty,
     now,
-    productId
+    productId,
+    companyId
   );
   db.prepare(
-    `INSERT INTO stock_movements (id, productId, type, qty, note, createdAt) VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(nextId(db, "stockMovements"), productId, type, qty, note, now);
-  return getProduct(productId) ?? null;
+    `INSERT INTO stock_movements (id, companyId, productId, type, qty, note, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(nextId(db, "stockMovements"), companyId, productId, type, qty, note, now);
+  return getProduct(productId, companyId) ?? null;
 }
 
-export function getStockMovements(productId?: number): StockMovement[] {
+export function getStockMovements(
+  companyId: number,
+  productId?: number
+): StockMovement[] {
   const db = getDb();
   const rows = productId
     ? (db
-        .prepare("SELECT * FROM stock_movements WHERE productId = ? ORDER BY id DESC")
-        .all(productId) as Record<string, unknown>[])
+        .prepare(
+          "SELECT * FROM stock_movements WHERE companyId = ? AND productId = ? ORDER BY id DESC"
+        )
+        .all(companyId, productId) as Record<string, unknown>[])
     : (db
-        .prepare("SELECT * FROM stock_movements ORDER BY id DESC")
-        .all() as Record<string, unknown>[]);
+        .prepare(
+          "SELECT * FROM stock_movements WHERE companyId = ? ORDER BY id DESC"
+        )
+        .all(companyId) as Record<string, unknown>[]);
   return rows.map(rowToStockMovement);
 }
 
-export function getLowStock(): Product[] {
-  return getProducts().filter((p) => p.isActive && p.stockQty <= p.reorderLevel);
+export function getLowStock(companyId: number): Product[] {
+  return getProducts(companyId).filter(
+    (p) => p.isActive && p.stockQty <= p.reorderLevel
+  );
 }
 
 // --- Public API: Customers ---
@@ -1112,11 +1210,13 @@ export interface CustomerOrderStats {
 }
 
 /**
- * Compute order stats for a single customer. Matches by `customerId` first
- * (the stable join), then falls back to phone/name matching for legacy rows
- * where customerId was never set. Excludes soft-deleted rows if any.
+ * Compute order stats for a single customer within a single company. Matches
+ * by `customerId` (the stable join). Excludes soft-deleted rows if any.
  */
-export function getOrderStatsForCustomer(customerId: number): CustomerOrderStats {
+export function getOrderStatsForCustomer(
+  customerId: number,
+  companyId: number
+): CustomerOrderStats {
   const db = getDb();
   const row = db
     .prepare(
@@ -1127,9 +1227,9 @@ export function getOrderStatsForCustomer(customerId: number): CustomerOrderStats
          COALESCE(SUM(CASE WHEN status NOT IN ('delivered','cancelled','returned') THEN 1 ELSE 0 END), 0) AS inProgress,
          COALESCE(SUM(CASE WHEN status = 'delivered' THEN total ELSE 0 END), 0) AS lifetimeSpend
        FROM orders
-       WHERE customerId = ?`
+       WHERE customerId = ? AND companyId = ?`
     )
-    .get(customerId) as
+    .get(customerId, companyId) as
     | {
         total: number;
         delivered: number;
@@ -1383,18 +1483,20 @@ export function updateRider(id: number, data: Partial<Rider>): Rider | null {
 
 // --- Public API: Orders ---
 
-export function getOrders(): Order[] {
+export function getOrders(companyId: number): Order[] {
   const db = getDb();
-  return (db
-    .prepare("SELECT * FROM orders ORDER BY id DESC")
-    .all() as Record<string, unknown>[]).map(rowToOrder);
+  return (
+    db
+      .prepare("SELECT * FROM orders WHERE companyId = ? ORDER BY id DESC")
+      .all(companyId) as Record<string, unknown>[]
+  ).map(rowToOrder);
 }
 
-export function getOrder(id: number): Order | undefined {
+export function getOrder(id: number, companyId: number): Order | undefined {
   const db = getDb();
-  const row = db.prepare("SELECT * FROM orders WHERE id = ?").get(id) as
-    | Record<string, unknown>
-    | undefined;
+  const row = db
+    .prepare("SELECT * FROM orders WHERE id = ? AND companyId = ?")
+    .get(id, companyId) as Record<string, unknown> | undefined;
   return row ? rowToOrder(row) : undefined;
 }
 
@@ -1441,22 +1543,21 @@ export interface NewOrderInput {
 function applyOrderToStock(order: Order, factor: 1 | -1) {
   const db = getDb();
   const insMov = db.prepare(
-    `INSERT INTO stock_movements (id, productId, type, qty, note, createdAt) VALUES (?, ?, 'sale', ?, ?, ?)`
+    `INSERT INTO stock_movements (id, companyId, productId, type, qty, note, createdAt) VALUES (?, ?, ?, 'sale', ?, ?, ?)`
   );
   for (const item of order.items) {
     const p = db
-      .prepare("SELECT stockQty FROM products WHERE id = ?")
-      .get(item.productId) as { stockQty: number } | undefined;
+      .prepare("SELECT stockQty FROM products WHERE id = ? AND companyId = ?")
+      .get(item.productId, order.companyId) as { stockQty: number } | undefined;
     if (!p) continue;
     const newQty = Math.max(0, p.stockQty - item.qty * factor);
-    db.prepare("UPDATE products SET stockQty = ?, updatedAt = ? WHERE id = ?").run(
-      newQty,
-      new Date().toISOString(),
-      item.productId
-    );
+    db.prepare(
+      "UPDATE products SET stockQty = ?, updatedAt = ? WHERE id = ? AND companyId = ?"
+    ).run(newQty, new Date().toISOString(), item.productId, order.companyId);
     if (factor === 1) {
       insMov.run(
         nextId(db, "stockMovements"),
+        order.companyId,
         item.productId,
         item.qty,
         `Order ${order.orderNo}`,
@@ -1473,7 +1574,7 @@ export interface CreateOrderResult {
   customer: Customer | null;
 }
 
-export function createOrder(input: NewOrderInput): CreateOrderResult {
+export function createOrder(input: NewOrderInput, companyId: number): CreateOrderResult {
   const db = getDb();
   // Auto-save customer by phone (preserved from JSON implementation)
   let resolvedCustomerId: number | null = input.customerId ?? null;
@@ -1529,8 +1630,8 @@ export function createOrder(input: NewOrderInput): CreateOrderResult {
   if (input.orderNo && input.orderNo.trim()) {
     const candidate = input.orderNo.trim();
     const clash = db
-      .prepare("SELECT id FROM orders WHERE orderNo = ?")
-      .get(candidate) as { id: number } | undefined;
+      .prepare("SELECT id FROM orders WHERE orderNo = ? AND companyId = ?")
+      .get(candidate, companyId) as { id: number } | undefined;
     if (clash) {
       throw new Error(`Order #${candidate} already exists (id=${clash.id})`);
     }
@@ -1539,7 +1640,7 @@ export function createOrder(input: NewOrderInput): CreateOrderResult {
     resolvedOrderNo = nextOrderNo(db);
   }
   const items = input.items.map((it) => {
-    const p = getProduct(it.productId);
+    const p = getProduct(it.productId, companyId);
     const lineTotal = Math.round(it.qty * it.unitPrice * 100) / 100;
     return {
       productId: it.productId,
@@ -1562,9 +1663,9 @@ export function createOrder(input: NewOrderInput): CreateOrderResult {
   // not have eaten inventory.
   const stockDeductedAtCreate = false;
   // Build with explicit arrays so placeholder count and value count are
-  // guaranteed to match. 36 columns → 36 ? placeholders → 36 .run() args.
+  // guaranteed to match. 39 columns → 39 ? placeholders → 39 .run() args.
   const cols: Array<string> = [
-    "id", "orderNo", "date", "customerId", "customerName", "customerPhone",
+    "id", "companyId", "orderNo", "date", "customerId", "customerName", "customerPhone",
     "area", "address", "items", "subtotal", "deliveryFee", "discount",
     "total", "paid", "paymentMethod", "status", "source", "deliveryMode",
     "pathaoTrackingId", "pathaoFare", "riderId", "riderCost", "note",
@@ -1573,8 +1674,8 @@ export function createOrder(input: NewOrderInput): CreateOrderResult {
     "stockDeducted", "wpOrderId", "updatedAt", "lat", "lng", "riderSeq",
     "cluster", "subCluster",
   ];
-  if (cols.length !== 38) {
-    throw new Error(`orders INSERT column list length is ${cols.length}, expected 38`);
+  if (cols.length !== 39) {
+    throw new Error(`orders INSERT column list length is ${cols.length}, expected 39`);
   }
   const placeholders = cols.map(() => "?").join(", ");
   const sql = `INSERT INTO orders (${cols.join(", ")}) VALUES (${placeholders})`;
@@ -1582,6 +1683,7 @@ export function createOrder(input: NewOrderInput): CreateOrderResult {
   // Build value array in the same column order. riderId + riderSeq get explicit null.
   const values: Array<string | number | null> = [
     id,                                                // id
+    companyId,                                         // companyId
     resolvedOrderNo,                                   // orderNo
     input.date || todayStr(),                          // date
     resolvedCustomerId,                                // customerId
@@ -1627,16 +1729,20 @@ export function createOrder(input: NewOrderInput): CreateOrderResult {
   // Note: stock deduction is intentionally NOT performed here. It happens in
   // setOrderStatus() the first time an order transitions to "delivered".
   return {
-    order: getOrder(id)!,
+    order: getOrder(id, companyId)!,
     customerSaved,
     customerUpdated,
     customer: savedCustomer,
   };
 }
 
-export function updateOrder(id: number, data: Partial<Order>): Order | null {
+export function updateOrder(
+  id: number,
+  data: Partial<Order>,
+  companyId: number
+): Order | null {
   const db = getDb();
-  const existing = getOrder(id);
+  const existing = getOrder(id, companyId);
   if (!existing) return null;
 
   // Stock reconciliation on items change — skip for orders that have not yet
@@ -1726,7 +1832,7 @@ export function updateOrder(id: number, data: Partial<Order>): Order | null {
     `UPDATE orders SET orderNo=?, date=?, customerId=?, customerName=?, customerPhone=?, area=?, address=?, items=?,
        subtotal=?, deliveryFee=?, discount=?, total=?, paid=?, paymentMethod=?, status=?, source=?, deliveryMode=?,
        pathaoTrackingId=?, pathaoFare=?, riderId=?, riderCost=?, note=?, createdAt=?, confirmedAt=?, deliveredAt=?,
-       cancelledAt=?, cancelReason=?, returnedAt=?, returnReason=?, updatedAt=?, lat=?, lng=?, riderSeq=?, cluster=?, subCluster=? WHERE id=?`
+       cancelledAt=?, cancelReason=?, returnedAt=?, returnReason=?, updatedAt=?, lat=?, lng=?, riderSeq=?, cluster=?, subCluster=? WHERE id=? AND companyId=?`
   ).run(
     merged.orderNo,
     merged.date,
@@ -1763,9 +1869,10 @@ export function updateOrder(id: number, data: Partial<Order>): Order | null {
     merged.riderSeq,
     merged.cluster,
     merged.subCluster,
-    id
+    id,
+    companyId
   );
-  return getOrder(id) ?? null;
+  return getOrder(id, companyId) ?? null;
 }
 
 /**
@@ -1777,14 +1884,14 @@ export function updateOrder(id: number, data: Partial<Order>): Order | null {
  * "Meaningfully better" = at least 100m closer to the customer-area centroid
  * than what we have now, OR we have no coords at all.
  */
-export async function geocodeAndRefineOrder(orderId: number): Promise<{
+export async function geocodeAndRefineOrder(orderId: number, companyId: number): Promise<{
   updated: boolean;
   reason: "no-signal" | "no-improvement" | "improved" | "no-photon-result";
   before?: { lat: number; lng: number };
   after?: { lat: number; lng: number; source: string; confidence: number };
 }> {
   const db = getDb();
-  const order = getOrder(orderId);
+  const order = getOrder(orderId, companyId);
   if (!order) return { updated: false, reason: "no-signal" };
 
   const result = await geocodeAddress({
@@ -1807,11 +1914,12 @@ export async function geocodeAndRefineOrder(orderId: number): Promise<{
     return { updated: false, reason: "no-improvement", before, after: result };
   }
 
-  db.prepare("UPDATE orders SET lat = ?, lng = ?, updatedAt = ? WHERE id = ?").run(
+  db.prepare("UPDATE orders SET lat = ?, lng = ?, updatedAt = ? WHERE id = ? AND companyId = ?").run(
     result.lat,
     result.lng,
     new Date().toISOString(),
     orderId,
+    companyId,
   );
 
   return { updated: true, reason: "improved", before, after: result };
@@ -1822,14 +1930,17 @@ export async function geocodeAndRefineOrder(orderId: number): Promise<{
  * Used by the "Refresh locations" admin button and the bulk-geocode script.
  * Returns counts and a small list of improvements (capped).
  */
-export async function bulkGeocodeOrders(opts: { date?: string; limit?: number } = {}): Promise<{
+export async function bulkGeocodeOrders(
+  companyId: number,
+  opts: { date?: string; limit?: number } = {}
+): Promise<{
   total: number;
   improved: number;
   noResult: number;
   errors: number;
   samples: Array<{ id: number; orderNo: string; area: string; before?: { lat: number; lng: number }; after: { lat: number; lng: number } }>;
 }> {
-  const all = getOrders();
+  const all = getOrders(companyId);
   const filtered = opts.date ? all.filter((o) => o.date === opts.date) : all;
   const slice = opts.limit ? filtered.slice(0, opts.limit) : filtered;
   let improved = 0;
@@ -1838,7 +1949,7 @@ export async function bulkGeocodeOrders(opts: { date?: string; limit?: number } 
   const samples: Array<{ id: number; orderNo: string; area: string; before?: { lat: number; lng: number }; after: { lat: number; lng: number } }> = [];
   for (const o of slice) {
     try {
-      const res = await geocodeAndRefineOrder(o.id);
+      const res = await geocodeAndRefineOrder(o.id, companyId);
       if (res.updated) {
         improved += 1;
         if (samples.length < 5) {
@@ -1863,10 +1974,11 @@ export async function bulkGeocodeOrders(opts: { date?: string; limit?: number } 
 export function setOrderStatus(
   id: number,
   status: OrderStatus,
+  companyId: number,
   cancelReason?: string
 ): Order | null {
   const db = getDb();
-  const order = getOrder(id);
+  const order = getOrder(id, companyId);
   if (!order) return null;
 
   const flow = ["new", "confirmed", "preparing", "out-for-delivery", "delivered"] as const;
@@ -1982,7 +2094,7 @@ export function setOrderStatus(
   const dateToWrite = dateOverride ?? order.date;
 
   db.prepare(
-    `UPDATE orders SET status=?, date=?, confirmedAt=?, deliveredAt=?, cancelledAt=?, cancelReason=?, returnedAt=?, returnReason=?, paid=?, stockDeducted=?, updatedAt=? WHERE id=?`
+    `UPDATE orders SET status=?, date=?, confirmedAt=?, deliveredAt=?, cancelledAt=?, cancelReason=?, returnedAt=?, returnReason=?, paid=?, stockDeducted=?, updatedAt=? WHERE id=? AND companyId=?`
   ).run(
     status,
     dateToWrite,
@@ -1995,10 +2107,11 @@ export function setOrderStatus(
     paid,
     willDeductOnDispatch ? 1 : (willRestoreOnReturn ? 0 : (order.stockDeducted ? 1 : 0)),
     now,
-    id
+    id,
+    companyId
   );
 
-  return getOrder(id) ?? null;
+  return getOrder(id, companyId) ?? null;
 }
 
 /**
@@ -2006,9 +2119,9 @@ export function setOrderStatus(
  * the status from "pending-approval" to "new". Returns the updated order or
  * null if not found / not in a pending state.
  */
-export function approveOrder(id: number): Order | null {
+export function approveOrder(id: number, companyId: number): Order | null {
   const db = getDb();
-  const order = getOrder(id);
+  const order = getOrder(id, companyId);
   if (!order) return null;
   if (order.status !== "pending-approval") {
     throw new Error(
@@ -2020,18 +2133,22 @@ export function approveOrder(id: number): Order | null {
   // Stock is no longer deducted at approval time — it moves only when the
   // order is later transitioned to "delivered" (see setOrderStatus).
   db.prepare(
-    `UPDATE orders SET status=?, updatedAt=? WHERE id=?`
-  ).run("new", now, id);
-  return getOrder(id) ?? null;
+    `UPDATE orders SET status=?, updatedAt=? WHERE id=? AND companyId=?`
+  ).run("new", now, id, companyId);
+  return getOrder(id, companyId) ?? null;
 }
 
 /**
  * Reject a WordPress order: leaves stock untouched (since it was never
  * deducted) and flips status to "cancelled" with the supplied reason.
  */
-export function cancelPendingOrder(id: number, reason: string): Order | null {
+export function cancelPendingOrder(
+  id: number,
+  reason: string,
+  companyId: number
+): Order | null {
   const db = getDb();
-  const order = getOrder(id);
+  const order = getOrder(id, companyId);
   if (!order) return null;
   if (order.status !== "pending-approval") {
     throw new Error(
@@ -2040,36 +2157,44 @@ export function cancelPendingOrder(id: number, reason: string): Order | null {
   }
   const now = new Date().toISOString();
   db.prepare(
-    `UPDATE orders SET status='cancelled', cancelledAt=?, cancelReason=?, stockDeducted=0, updatedAt=? WHERE id=?`
-  ).run(now, (reason || "").trim(), now, id);
-  return getOrder(id) ?? null;
+    `UPDATE orders SET status='cancelled', cancelledAt=?, cancelReason=?, stockDeducted=0, updatedAt=? WHERE id=? AND companyId=?`
+  ).run(now, (reason || "").trim(), now, id, companyId);
+  return getOrder(id, companyId) ?? null;
 }
 
 /**
  * Find an existing pending-approval order for a given WooCommerce order id.
- * Used to dedupe retries on the inbound webhook.
+ * Used to dedupe retries on the inbound webhook. Per-company so two companies
+ * can reuse the same WP order ids without colliding.
  */
-export function findPendingOrderByWpId(wpOrderId: string): Order | undefined {
+export function findPendingOrderByWpId(
+  wpOrderId: string,
+  companyId: number
+): Order | undefined {
   const db = getDb();
   if (!wpOrderId) return undefined;
   const row = db
-    .prepare("SELECT * FROM orders WHERE wpOrderId = ? AND status = 'pending-approval'")
-    .get(wpOrderId) as Record<string, unknown> | undefined;
+    .prepare(
+      "SELECT * FROM orders WHERE wpOrderId = ? AND companyId = ? AND status = 'pending-approval'"
+    )
+    .get(wpOrderId, companyId) as Record<string, unknown> | undefined;
   return row ? rowToOrder(row) : undefined;
 }
 
-export function assignRider(orderId: number, riderId: number | null): Order | null {
+export function assignRider(
+  orderId: number,
+  riderId: number | null,
+  companyId: number
+): Order | null {
   const db = getDb();
-  const order = getOrder(orderId);
+  const order = getOrder(orderId, companyId);
   if (!order) return null;
   // Assigning without a sequence means "this rider has the order but no plan yet".
   // We do NOT auto-clear riderSeq on unassign — the caller is responsible.
-  db.prepare("UPDATE orders SET riderId = ?, updatedAt = ? WHERE id = ?").run(
-    riderId,
-    new Date().toISOString(),
-    orderId
-  );
-  return getOrder(orderId) ?? null;
+  db.prepare(
+    "UPDATE orders SET riderId = ?, updatedAt = ? WHERE id = ? AND companyId = ?"
+  ).run(riderId, new Date().toISOString(), orderId, companyId);
+  return getOrder(orderId, companyId) ?? null;
 }
 
 // --- Route planning ---
@@ -2103,32 +2228,36 @@ export interface RiderPlanEntry {
  * given sequence, and unassign any of the rider's previously-planned orders
  * that are not in the new plan. Returns the count of orders saved.
  */
-export function setRiderPlan(riderId: number, plan: RiderPlanEntry[]): { updated: number; unassigned: number } {
+export function setRiderPlan(
+  riderId: number,
+  plan: RiderPlanEntry[],
+  companyId: number
+): { updated: number; unassigned: number } {
   const db = getDb();
   const now = new Date().toISOString();
   const setSeq = db.prepare(
-    "UPDATE orders SET riderId = ?, riderSeq = ?, updatedAt = ? WHERE id = ?"
+    "UPDATE orders SET riderId = ?, riderSeq = ?, updatedAt = ? WHERE id = ? AND companyId = ?"
   );
   const keepOrphanUnassigned = db.prepare(
-    "UPDATE orders SET riderId = NULL, riderSeq = NULL, updatedAt = ? WHERE id = ?"
+    "UPDATE orders SET riderId = NULL, riderSeq = NULL, updatedAt = ? WHERE id = ? AND companyId = ?"
   );
 
   const inPlanIds = new Set(plan.map((p) => p.orderId));
   let updated = 0;
   const tx = db.transaction(() => {
     for (const p of plan) {
-      setSeq.run(riderId, p.seq, now, p.orderId);
+      setSeq.run(riderId, p.seq, now, p.orderId, companyId);
       updated += 1;
     }
     // Find orders currently assigned to this rider that are no longer in the
     // new plan and unassign them so the plan is the source of truth.
     const previous = db
-      .prepare("SELECT id FROM orders WHERE riderId = ?")
-      .all(riderId) as Array<{ id: number }>;
+      .prepare("SELECT id FROM orders WHERE riderId = ? AND companyId = ?")
+      .all(riderId, companyId) as Array<{ id: number }>;
     let unassigned = 0;
     for (const r of previous) {
       if (!inPlanIds.has(r.id)) {
-        keepOrphanUnassigned.run(now, r.id);
+        keepOrphanUnassigned.run(now, r.id, companyId);
         unassigned += 1;
       }
     }
@@ -2139,53 +2268,55 @@ export function setRiderPlan(riderId: number, plan: RiderPlanEntry[]): { updated
 }
 
 /** Clear a rider's plan (unassign all orders currently assigned to them). */
-export function clearRiderPlan(riderId: number): number {
+export function clearRiderPlan(riderId: number, companyId: number): number {
   const db = getDb();
   const now = new Date().toISOString();
   const r = db
-    .prepare("UPDATE orders SET riderId = NULL, riderSeq = NULL, updatedAt = ? WHERE riderId = ?")
-    .run(now, riderId);
+    .prepare(
+      "UPDATE orders SET riderId = NULL, riderSeq = NULL, updatedAt = ? WHERE riderId = ? AND companyId = ?"
+    )
+    .run(now, riderId, companyId);
   return r.changes;
 }
 
 /** Get all orders for a rider on a given BD date, ordered by riderSeq (NULLS LAST). */
-export function getRiderPlanOrders(riderId: number, date: string): Order[] {
+export function getRiderPlanOrders(riderId: number, date: string, companyId: number): Order[] {
   const db = getDb();
   const rows = db
     .prepare(
       `SELECT * FROM orders
-       WHERE riderId = ? AND date = ? AND deliveryMode != 'pathao'
+       WHERE riderId = ? AND date = ? AND companyId = ? AND deliveryMode != 'pathao'
        ORDER BY CASE WHEN riderSeq IS NULL THEN 1 ELSE 0 END, riderSeq ASC, id ASC`
     )
-    .all(riderId, date) as Record<string, unknown>[];
+    .all(riderId, date, companyId) as Record<string, unknown>[];
   return rows.map(rowToOrder);
 }
 
 /** Get all unassigned own-rider orders for a date, eligible for planning. */
-export function getUnassignedOrders(date: string): Order[] {
+export function getUnassignedOrders(date: string, companyId: number): Order[] {
   const db = getDb();
   const rows = db
     .prepare(
       `SELECT * FROM orders
-       WHERE riderId IS NULL AND date = ? AND deliveryMode != 'pathao' AND status != 'cancelled' AND status != 'delivered' AND status != 'pending-approval'
+       WHERE riderId IS NULL AND date = ? AND companyId = ? AND deliveryMode != 'pathao' AND status != 'cancelled' AND status != 'delivered' AND status != 'pending-approval'
        ORDER BY id ASC`
     )
-    .all(date) as Record<string, unknown>[];
+    .all(date, companyId) as Record<string, unknown>[];
   return rows.map(rowToOrder);
 }
 
 /** Get all currently-planned (assigned + sequenced) own-rider orders for a date,
  *  grouped by rider. Useful for the /routes landing page. */
-export function getRidersWithPlans(date: string): Array<{ rider: Rider; orders: Order[]; totalDistanceMeters: number }> {
+export function getRidersWithPlans(date: string, companyId: number): Array<{ rider: Rider; orders: Order[]; totalDistanceMeters: number }> {
   const db = getDb();
   const riders = getActiveRiders();
   const result: Array<{ rider: Rider; orders: Order[]; totalDistanceMeters: number }> = [];
   for (const rider of riders) {
-    const orders = getRiderPlanOrders(rider.id, date);
+    const orders = getRiderPlanOrders(rider.id, date, companyId);
     if (orders.length === 0) continue;
     // Total distance is the sum of haversine distances from shop → first stop → ... → last stop.
     let total = 0;
-    const shop = getShopLocation();
+    const shop = getShopLocation(companyId);
     let prev: { lat: number; lng: number } | null = shop;
     for (const o of orders) {
       if (typeof o.lat === "number" && typeof o.lng === "number" && prev) {
@@ -2219,9 +2350,9 @@ export interface AutoAssignResult {
   unassignedOrderIds: number[];
 }
 
-export function autoAssignOrdersByCluster(date: string): AutoAssignResult {
+export function autoAssignOrdersByCluster(date: string, companyId: number): AutoAssignResult {
   const db = getDb();
-  const unassigned = getUnassignedOrders(date);
+  const unassigned = getUnassignedOrders(date, companyId);
   const riders = getActiveRiders();
 
   // Build a map: cluster → [riders serving that cluster]
@@ -2243,10 +2374,10 @@ export function autoAssignOrdersByCluster(date: string): AutoAssignResult {
   const loadRows = db
     .prepare(
       `SELECT riderId, COUNT(*) AS n FROM orders
-        WHERE date = ? AND riderId IS NOT NULL AND deliveryMode != 'pathao'
+        WHERE date = ? AND companyId = ? AND riderId IS NOT NULL AND deliveryMode != 'pathao'
         GROUP BY riderId`
     )
-    .all(date) as Array<{ riderId: number; n: number }>;
+    .all(date, companyId) as Array<{ riderId: number; n: number }>;
   for (const r of loadRows) loadByRider.set(r.riderId, r.n);
 
   // Round-robin pointer per cluster
@@ -2257,7 +2388,7 @@ export function autoAssignOrdersByCluster(date: string): AutoAssignResult {
   const assignedIds: number[] = [];
 
   const setAssign = db.prepare(
-    "UPDATE orders SET riderId = ?, updatedAt = ? WHERE id = ?"
+    "UPDATE orders SET riderId = ?, updatedAt = ? WHERE id = ? AND companyId = ?"
   );
   const now = new Date().toISOString();
 
@@ -2289,7 +2420,7 @@ export function autoAssignOrdersByCluster(date: string): AutoAssignResult {
         unassignedByCluster[cluster] = (unassignedByCluster[cluster] ?? 0) + 1;
         continue;
       }
-      setAssign.run(picked.id, now, order.id);
+      setAssign.run(picked.id, now, order.id, companyId);
       assignedIds.push(order.id);
       byCluster[cluster] = (byCluster[cluster] ?? 0) + 1;
       byRider[picked.id] = (byRider[picked.id] ?? 0) + 1;
@@ -2316,14 +2447,14 @@ export function autoAssignOrdersByCluster(date: string): AutoAssignResult {
  *  lives in `geo.ts` so the math stays in one place. */
 // (haversineMeters is imported from "./geo" above)
 
-export function deleteOrder(id: number): boolean {
+export function deleteOrder(id: number, companyId: number): boolean {
   const db = getDb();
-  const order = getOrder(id);
+  const order = getOrder(id, companyId);
   if (!order) return false;
   // Only re-add stock if we actually deducted it. Pending-approval orders
   // never touched inventory, so deleting them is a pure no-op for stock.
   if (order.status !== "cancelled" && order.stockDeducted) applyOrderToStock(order, -1);
-  const r = db.prepare("DELETE FROM orders WHERE id = ?").run(id);
+  const r = db.prepare("DELETE FROM orders WHERE id = ? AND companyId = ?").run(id, companyId);
   return r.changes > 0;
 }
 
@@ -2384,10 +2515,10 @@ export interface ExpenseQuery {
   limit?: number;
 }
 
-export function getExpenses(q: ExpenseQuery = {}): Expense[] {
+export function getExpenses(companyId: number, q: ExpenseQuery = {}): Expense[] {
   const db = getDb();
-  const where: string[] = [];
-  const params: Array<string | number> = [];
+  const where: string[] = ["companyId = ?"];
+  const params: Array<string | number> = [companyId];
   if (q.from) {
     where.push("date >= ?");
     params.push(q.from);
@@ -2402,17 +2533,17 @@ export function getExpenses(q: ExpenseQuery = {}): Expense[] {
   }
   const sql =
     "SELECT * FROM expenses" +
-    (where.length ? ` WHERE ${where.join(" AND ")}` : "") +
+    ` WHERE ${where.join(" AND ")}` +
     " ORDER BY date DESC, id DESC" +
     (q.limit ? ` LIMIT ${Math.max(1, Math.min(500, q.limit | 0))}` : "");
   return (db.prepare(sql).all(...params) as Record<string, unknown>[]).map(rowToExpense);
 }
 
-export function getExpense(id: number): Expense | undefined {
+export function getExpense(id: number, companyId: number): Expense | undefined {
   const db = getDb();
-  const row = db.prepare("SELECT * FROM expenses WHERE id = ?").get(id) as
-    | Record<string, unknown>
-    | undefined;
+  const row = db
+    .prepare("SELECT * FROM expenses WHERE id = ? AND companyId = ?")
+    .get(id, companyId) as Record<string, unknown> | undefined;
   return row ? rowToExpense(row) : undefined;
 }
 
@@ -2426,7 +2557,7 @@ export interface NewExpenseInput {
   createdBy?: string;
 }
 
-export function createExpense(input: NewExpenseInput): Expense {
+export function createExpense(input: NewExpenseInput, companyId: number): Expense {
   const db = getDb();
   if (!Number.isFinite(input.amount) || input.amount < 0) {
     throw new Error("Expense amount must be a non-negative number.");
@@ -2435,10 +2566,11 @@ export function createExpense(input: NewExpenseInput): Expense {
   const now = new Date().toISOString();
   const date = (input.date || todayStr()).trim();
   db.prepare(
-    `INSERT INTO expenses (id, date, category, amount, vendor, paymentMethod, note, createdAt, updatedAt, createdBy)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO expenses (id, companyId, date, category, amount, vendor, paymentMethod, note, createdAt, updatedAt, createdBy)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
+    companyId,
     date,
     normalizeExpenseCategory(input.category),
     Math.round(input.amount * 100) / 100,
@@ -2449,12 +2581,16 @@ export function createExpense(input: NewExpenseInput): Expense {
     now,
     String(input.createdBy ?? "").trim()
   );
-  return getExpense(id)!;
+  return getExpense(id, companyId)!;
 }
 
-export function updateExpense(id: number, data: Partial<NewExpenseInput>): Expense | null {
+export function updateExpense(
+  id: number,
+  data: Partial<NewExpenseInput>,
+  companyId: number
+): Expense | null {
   const db = getDb();
-  const existing = getExpense(id);
+  const existing = getExpense(id, companyId);
   if (!existing) return null;
   if (data.amount !== undefined && (!Number.isFinite(data.amount) || data.amount < 0)) {
     throw new Error("Expense amount must be a non-negative number.");
@@ -2473,7 +2609,7 @@ export function updateExpense(id: number, data: Partial<NewExpenseInput>): Expen
     updatedAt: new Date().toISOString(),
   };
   db.prepare(
-    `UPDATE expenses SET date=?, category=?, amount=?, vendor=?, paymentMethod=?, note=?, updatedAt=? WHERE id=?`
+    `UPDATE expenses SET date=?, category=?, amount=?, vendor=?, paymentMethod=?, note=?, updatedAt=? WHERE id=? AND companyId=?`
   ).run(
     merged.date,
     merged.category,
@@ -2482,14 +2618,17 @@ export function updateExpense(id: number, data: Partial<NewExpenseInput>): Expen
     merged.paymentMethod,
     merged.note,
     merged.updatedAt,
-    id
+    id,
+    companyId
   );
-  return getExpense(id) ?? null;
+  return getExpense(id, companyId) ?? null;
 }
 
-export function deleteExpense(id: number): boolean {
+export function deleteExpense(id: number, companyId: number): boolean {
   const db = getDb();
-  const r = db.prepare("DELETE FROM expenses WHERE id = ?").run(id);
+  const r = db
+    .prepare("DELETE FROM expenses WHERE id = ? AND companyId = ?")
+    .run(id, companyId);
   return r.changes > 0;
 }
 
@@ -2500,8 +2639,11 @@ export interface ExpenseSummary {
   byDay: Array<{ date: string; total: number; count: number }>;
 }
 
-export function getExpenseSummary(q: ExpenseQuery = {}): ExpenseSummary {
-  const list = getExpenses(q);
+export function getExpenseSummary(
+  companyId: number,
+  q: ExpenseQuery = {}
+): ExpenseSummary {
+  const list = getExpenses(companyId, q);
   const total = list.reduce((s, e) => s + e.amount, 0);
   const byCat = new Map<ExpenseCategory, { total: number; count: number }>();
   const byDay = new Map<string, { total: number; count: number }>();
@@ -2546,9 +2688,9 @@ export interface DashboardStats {
   newOrders: Order[];
 }
 
-export function getDashboard(): DashboardStats {
+export function getDashboard(companyId: number): DashboardStats {
   const db = getDb();
-  const allOrders = getOrders();
+  const allOrders = getOrders(companyId);
 
   const todayOrders = allOrders.filter((o) => o.confirmedAt && isToday(o.confirmedAt));
   // Exclude returned orders from revenue — goods came back so the sale
@@ -2570,7 +2712,7 @@ export function getDashboard(): DashboardStats {
 
   // Today's expenses (operational costs paid out today)
   const todayKey = todayStr();
-  const todayExpensesList = getExpenses({ from: todayKey, to: todayKey });
+  const todayExpensesList = getExpenses(companyId, { from: todayKey, to: todayKey });
   const todayExpenses = Math.round(
     todayExpensesList.reduce((s, e) => s + e.amount, 0) * 100
   ) / 100;
@@ -2587,7 +2729,7 @@ export function getDashboard(): DashboardStats {
       net: Math.round((todayRevenueRounded - todayExpenses) * 100) / 100,
     },
     monthlyRevenue: Math.round(monthlyRevenue),
-    lowStock: getLowStock(),
+    lowStock: getLowStock(companyId),
     activeRiders: getActiveRiders(),
     openOrders: allOrders
       .filter((o) => !["delivered", "cancelled", "returned", "new", "pending-approval"].includes(o.status))
@@ -2601,28 +2743,34 @@ export function getDashboard(): DashboardStats {
 
 // --- Public API: Suppliers ---
 
-export function getSuppliers(): Supplier[] {
+export function getSuppliers(companyId: number): Supplier[] {
   const db = getDb();
-  return (db
-    .prepare("SELECT * FROM suppliers ORDER BY id ASC")
-    .all() as Record<string, unknown>[]).map(rowToSupplier);
+  return (
+    db
+      .prepare("SELECT * FROM suppliers WHERE companyId = ? ORDER BY id ASC")
+      .all(companyId) as Record<string, unknown>[]
+  ).map(rowToSupplier);
 }
 
-export function getSupplier(id: number): Supplier | undefined {
+export function getSupplier(id: number, companyId: number): Supplier | undefined {
   const db = getDb();
-  const row = db.prepare("SELECT * FROM suppliers WHERE id = ?").get(id) as
-    | Record<string, unknown>
-    | undefined;
+  const row = db
+    .prepare("SELECT * FROM suppliers WHERE id = ? AND companyId = ?")
+    .get(id, companyId) as Record<string, unknown> | undefined;
   return row ? rowToSupplier(row) : undefined;
 }
 
-export function createSupplier(data: Omit<Supplier, "id" | "createdAt" | "isActive">): Supplier {
+export function createSupplier(
+  data: Omit<Supplier, "id" | "createdAt" | "isActive">,
+  companyId: number
+): Supplier {
   const db = getDb();
   const id = nextId(db, "suppliers");
   db.prepare(
-    `INSERT INTO suppliers (id, name, contact, phone, address, category, paymentTerms, notes, isActive, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+    `INSERT INTO suppliers (id, companyId, name, contact, phone, address, category, paymentTerms, notes, isActive, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
   ).run(
     id,
+    companyId,
     data.name,
     data.contact,
     data.phone,
@@ -2632,16 +2780,20 @@ export function createSupplier(data: Omit<Supplier, "id" | "createdAt" | "isActi
     data.notes,
     new Date().toISOString()
   );
-  return getSupplier(id)!;
+  return getSupplier(id, companyId)!;
 }
 
-export function updateSupplier(id: number, data: Partial<Supplier>): Supplier | null {
+export function updateSupplier(
+  id: number,
+  data: Partial<Supplier>,
+  companyId: number
+): Supplier | null {
   const db = getDb();
-  const existing = getSupplier(id);
+  const existing = getSupplier(id, companyId);
   if (!existing) return null;
   const merged: Supplier = { ...existing, ...data, id: existing.id };
   db.prepare(
-    `UPDATE suppliers SET name=?, contact=?, phone=?, address=?, category=?, paymentTerms=?, notes=?, isActive=? WHERE id=?`
+    `UPDATE suppliers SET name=?, contact=?, phone=?, address=?, category=?, paymentTerms=?, notes=?, isActive=? WHERE id=? AND companyId=?`
   ).run(
     merged.name,
     merged.contact,
@@ -2651,7 +2803,8 @@ export function updateSupplier(id: number, data: Partial<Supplier>): Supplier | 
     merged.paymentTerms,
     merged.notes,
     merged.isActive ? 1 : 0,
-    id
+    id,
+    companyId
   );
   return merged;
 }
@@ -2665,18 +2818,20 @@ function nextPoNumber(db: Database.Database): string {
   return `PO-${y}-${seq}`;
 }
 
-export function getPurchaseOrders(): PurchaseOrder[] {
+export function getPurchaseOrders(companyId: number): PurchaseOrder[] {
   const db = getDb();
-  return (db
-    .prepare("SELECT * FROM purchase_orders ORDER BY id DESC")
-    .all() as Record<string, unknown>[]).map(rowToPurchaseOrder);
+  return (
+    db
+      .prepare("SELECT * FROM purchase_orders WHERE companyId = ? ORDER BY id DESC")
+      .all(companyId) as Record<string, unknown>[]
+  ).map(rowToPurchaseOrder);
 }
 
-export function getPurchaseOrder(id: number): PurchaseOrder | undefined {
+export function getPurchaseOrder(id: number, companyId: number): PurchaseOrder | undefined {
   const db = getDb();
-  const row = db.prepare("SELECT * FROM purchase_orders WHERE id = ?").get(id) as
-    | Record<string, unknown>
-    | undefined;
+  const row = db
+    .prepare("SELECT * FROM purchase_orders WHERE id = ? AND companyId = ?")
+    .get(id, companyId) as Record<string, unknown> | undefined;
   return row ? rowToPurchaseOrder(row) : undefined;
 }
 
@@ -2688,12 +2843,15 @@ export interface NewPurchaseOrderInput {
   note: string;
 }
 
-export function createPurchaseOrder(input: NewPurchaseOrderInput): PurchaseOrder {
+export function createPurchaseOrder(
+  input: NewPurchaseOrderInput,
+  companyId: number
+): PurchaseOrder {
   const db = getDb();
   const id = nextId(db, "purchaseOrders");
   const now = new Date().toISOString();
   const items: PurchaseOrderItem[] = input.items.map((it) => {
-    const p = getProduct(it.productId);
+    const p = getProduct(it.productId, companyId);
     return {
       productId: it.productId,
       name: p?.name || "Item",
@@ -2706,10 +2864,11 @@ export function createPurchaseOrder(input: NewPurchaseOrderInput): PurchaseOrder
   });
   const subtotal = Math.round(items.reduce((s, it) => s + it.lineTotal, 0) * 100) / 100;
   db.prepare(
-    `INSERT INTO purchase_orders (id, poNumber, date, supplierId, items, subtotal, status, expectedDate, receivedDate, note, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, '', ?, ?, ?)`
+    `INSERT INTO purchase_orders (id, companyId, poNumber, date, supplierId, items, subtotal, status, expectedDate, receivedDate, note, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, '', ?, ?, ?)`
   ).run(
     id,
+    companyId,
     nextPoNumber(db),
     input.date || todayStr(),
     input.supplierId,
@@ -2720,16 +2879,20 @@ export function createPurchaseOrder(input: NewPurchaseOrderInput): PurchaseOrder
     now,
     now
   );
-  return getPurchaseOrder(id)!;
+  return getPurchaseOrder(id, companyId)!;
 }
 
-export function updatePurchaseOrder(id: number, data: Partial<PurchaseOrder>): PurchaseOrder | null {
+export function updatePurchaseOrder(
+  id: number,
+  data: Partial<PurchaseOrder>,
+  companyId: number
+): PurchaseOrder | null {
   const db = getDb();
-  const existing = getPurchaseOrder(id);
+  const existing = getPurchaseOrder(id, companyId);
   if (!existing) return null;
   const merged: PurchaseOrder = { ...existing, ...data, id: existing.id, updatedAt: new Date().toISOString() };
   db.prepare(
-    `UPDATE purchase_orders SET poNumber=?, date=?, supplierId=?, items=?, subtotal=?, status=?, expectedDate=?, receivedDate=?, note=?, updatedAt=? WHERE id=?`
+    `UPDATE purchase_orders SET poNumber=?, date=?, supplierId=?, items=?, subtotal=?, status=?, expectedDate=?, receivedDate=?, note=?, updatedAt=? WHERE id=? AND companyId=?`
   ).run(
     merged.poNumber,
     merged.date,
@@ -2741,36 +2904,39 @@ export function updatePurchaseOrder(id: number, data: Partial<PurchaseOrder>): P
     merged.receivedDate,
     merged.note,
     merged.updatedAt,
-    id
+    id,
+    companyId
   );
   return merged;
 }
 
 export function setPurchaseOrderStatus(
   id: number,
-  status: PurchaseOrderStatus
+  status: PurchaseOrderStatus,
+  companyId: number
 ): PurchaseOrder | null {
   const db = getDb();
-  const po = getPurchaseOrder(id);
+  const po = getPurchaseOrder(id, companyId);
   if (!po) return null;
   const now = new Date().toISOString();
   const receivedDate = status === "received" && !po.receivedDate ? todayStr() : po.receivedDate;
 
   const insMov = db.prepare(
-    `INSERT INTO stock_movements (id, productId, type, qty, note, createdAt) VALUES (?, ?, ?, ?, ?, ?)`
+    `INSERT INTO stock_movements (id, companyId, productId, type, qty, note, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)`
   );
   if (status === "received" && !po.receivedDate) {
     for (const item of po.items) {
       const p = db
-        .prepare("SELECT stockQty, costPrice FROM products WHERE id = ?")
-        .get(item.productId) as { stockQty: number; costPrice: number } | undefined;
+        .prepare("SELECT stockQty, costPrice FROM products WHERE id = ? AND companyId = ?")
+        .get(item.productId, companyId) as { stockQty: number; costPrice: number } | undefined;
       if (!p) continue;
       const newQty = Math.round((p.stockQty + item.qty) * 100) / 100;
       db.prepare(
-        "UPDATE products SET stockQty = ?, costPrice = ?, updatedAt = ? WHERE id = ?"
-      ).run(newQty, item.unitCost, now, item.productId);
+        "UPDATE products SET stockQty = ?, costPrice = ?, updatedAt = ? WHERE id = ? AND companyId = ?"
+      ).run(newQty, item.unitCost, now, item.productId, companyId);
       insMov.run(
         nextId(db, "stockMovements"),
+        companyId,
         item.productId,
         "purchase",
         item.qty,
@@ -2782,17 +2948,16 @@ export function setPurchaseOrderStatus(
   if (status === "cancelled" && po.receivedDate) {
     for (const item of po.items) {
       const p = db
-        .prepare("SELECT stockQty FROM products WHERE id = ?")
-        .get(item.productId) as { stockQty: number } | undefined;
+        .prepare("SELECT stockQty FROM products WHERE id = ? AND companyId = ?")
+        .get(item.productId, companyId) as { stockQty: number } | undefined;
       if (!p) continue;
       const newQty = Math.max(0, Math.round((p.stockQty - item.qty) * 100) / 100);
-      db.prepare("UPDATE products SET stockQty = ?, updatedAt = ? WHERE id = ?").run(
-        newQty,
-        now,
-        item.productId
-      );
+      db.prepare(
+        "UPDATE products SET stockQty = ?, updatedAt = ? WHERE id = ? AND companyId = ?"
+      ).run(newQty, now, item.productId, companyId);
       insMov.run(
         nextId(db, "stockMovements"),
+        companyId,
         item.productId,
         "wastage",
         item.qty,
@@ -2802,7 +2967,7 @@ export function setPurchaseOrderStatus(
     }
   }
   db.prepare(
-    `UPDATE purchase_orders SET status=?, receivedDate=?, updatedAt=? WHERE id=?`
-  ).run(status, status === "cancelled" ? "" : receivedDate, now, id);
-  return getPurchaseOrder(id) ?? null;
+    `UPDATE purchase_orders SET status=?, receivedDate=?, updatedAt=? WHERE id=? AND companyId=?`
+  ).run(status, status === "cancelled" ? "" : receivedDate, now, id, companyId);
+  return getPurchaseOrder(id, companyId) ?? null;
 }

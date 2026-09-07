@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Save, Package, Tag, Boxes } from "lucide-react";
 import type { Product, ProductCategory } from "@/lib/types";
 import { CATEGORY_LABELS, formatMoney } from "@/lib/ui";
+import { useActiveCompany } from "@/lib/active-company";
 
 interface FormState {
   sku: string;
@@ -22,6 +23,8 @@ interface FormState {
 
 export default function NewProductPage() {
   const router = useRouter();
+  const { activeCompany } = useActiveCompany();
+  const isMeat = activeCompany?.slug === "meat";
   const [form, setForm] = useState<FormState>({
     sku: "",
     name: "",
@@ -198,15 +201,17 @@ export default function NewProductPage() {
                   placeholder="Beef Boneless"
                 />
               </div>
-              <div>
-                <label>Name (Bangla)</label>
-                <input
-                  value={form.nameBn}
-                  onChange={(e) => set("nameBn", e.target.value)}
-                  placeholder="গরুর মাংস বোনলেস"
-                  style={{ fontFamily: '"Hind Siliguri", "Noto Sans Bengali", sans-serif' }}
-                />
-              </div>
+              {isMeat && (
+                <div>
+                  <label>Name (Bangla)</label>
+                  <input
+                    value={form.nameBn}
+                    onChange={(e) => set("nameBn", e.target.value)}
+                    placeholder="গরুর মাংস বোনলেস"
+                    style={{ fontFamily: '"Hind Siliguri", "Noto Sans Bengali", sans-serif' }}
+                  />
+                </div>
+              )}
               <div>
                 <label>Category</label>
                 <select value={form.category} onChange={(e) => set("category", e.target.value as ProductCategory)}>
@@ -379,7 +384,7 @@ export default function NewProductPage() {
               Summary
             </h2>
             <SummaryRow label="Name" value={form.name || "—"} />
-            <SummaryRow label="Bangla" value={form.nameBn || "—"} bn />
+            {isMeat && <SummaryRow label="Bangla" value={form.nameBn || "—"} bn />}
             <SummaryRow label="Category" value={CATEGORY_LABELS[form.category] || form.category} />
             <SummaryRow label="Unit" value={form.unit} />
             <div style={{ height: 1, background: "var(--border)", margin: "10px 0" }} />

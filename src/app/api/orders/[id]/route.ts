@@ -1,18 +1,21 @@
 import { NextResponse } from "next/server";
 import { getOrder, updateOrder, setOrderStatus, assignRider, deleteOrder } from "@/lib/db";
+import { getCompanyIdFromRequest } from "@/lib/tenant";
 
-export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const companyId = await getCompanyIdFromRequest(request);
   const { id: idParam } = await params;
-  const order = getOrder(Number(idParam));
+  const order = getOrder(Number(idParam), companyId);
   if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
   return NextResponse.json(order);
 }
 
-export async function DELETE(_: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const companyId = await getCompanyIdFromRequest(request);
     const { id: idParam } = await params;
     const id = Number(idParam);
-    const order = getOrder(id);
+    const order = getOrder(id, companyId);
     if (!order) return NextResponse.json({ ok: false, error: "Order not found" }, { status: 404 });
     // Only allow delete from the approval queue — pending-approval orders
     // never touched stock or status flow, so they're safe to remove.
@@ -25,7 +28,7 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
         { status: 400 }
       );
     }
-    const ok = deleteOrder(id);
+    const ok = deleteOrder(id, companyId);
     if (!ok) return NextResponse.json({ ok: false, error: "Delete failed" }, { status: 500 });
     return NextResponse.json({ ok: true, deletedId: id });
   } catch (e) {
@@ -35,6 +38,7 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
 
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const companyId = await getCompanyIdFromRequest(request);
     const { id: idParam } = await params;
     const id = Number(idParam);
     const data = await request.json();
@@ -44,11 +48,11 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       // function (setOrderStatus) picks the right one based on status —
       // it ignores cancelReason unless the transition is into "cancelled".
       const reason = data.cancelReason ?? data.returnReason;
-      order = setOrderStatus(id, data.status, reason);
+      order = setOrderStatus(id, data.status, companyId, reason);
     } else if ("riderId" in data) {
-      order = assignRider(id, data.riderId);
+      order = assignRider(id, data.riderId, companyId);
     } else {
-      order = updateOrder(id, data);
+      order = updateOrder(id, data, companyId);
     }
     if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
     return NextResponse.json(order);

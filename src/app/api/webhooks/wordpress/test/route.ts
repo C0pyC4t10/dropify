@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSettings, getProducts } from "@/lib/db";
+import { getCompanyIdFromRequest } from "@/lib/tenant";
 
 /**
  * POST /api/webhooks/wordpress/test
@@ -16,9 +17,10 @@ import { getSettings, getProducts } from "@/lib/db";
  * actual WP site running.
  */
 export async function POST(request: Request) {
+  const companyId = await getCompanyIdFromRequest(request);
   let settings;
   try {
-    settings = getSettings();
+    settings = getSettings(companyId);
   } catch (e) {
     return NextResponse.json({ ok: false, error: "Settings missing: " + String(e) }, { status: 500 });
   }
@@ -33,7 +35,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const products = getProducts();
+  const products = getProducts(companyId);
   if (products.length === 0) {
     return NextResponse.json(
       { ok: false, error: "No products in catalog — create at least one first." },

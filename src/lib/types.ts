@@ -113,6 +113,8 @@ export interface OrderItem {
 
 export interface Order {
   id: number;
+  /** Tenant scope. Set at createOrder time and never changes. */
+  companyId: number;
   orderNo: string;
   date: string;
   customerId: number | null;

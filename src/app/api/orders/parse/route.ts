@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { createOrder, getProducts } from "@/lib/db";
+import { createOrder, getProducts, getCompany } from "@/lib/db";
 import { parseOrderFromText, type ParsedOrder, type ParsedOrderItem } from "@/lib/order-parser";
+import { getCompanyIdFromRequest } from "@/lib/tenant";
 
 /**
  * POST /api/orders/parse
@@ -17,6 +18,9 @@ import { parseOrderFromText, type ParsedOrder, type ParsedOrderItem } from "@/li
  */
 export async function POST(request: Request) {
   try {
+    const companyId = await getCompanyIdFromRequest(request);
+    const company = getCompany(companyId);
+    const isBanglaEnabled = company?.slug === "meat";
     const body = await request.json();
     let parsed: ParsedOrder | null = body.parsed || null;
     let finalItems:
@@ -25,7 +29,7 @@ export async function POST(request: Request) {
 
     // If client sent raw text, parse server-side.
     if (!parsed && typeof body.text === "string" && body.text.trim()) {
-      const products = getProducts().map((p) => ({
+      const products = getProducts(companyId).map((p) => ({
         id: p.id,
         name: p.name,
         nameBn: p.nameBn,
@@ -33,7 +37,7 @@ export async function POST(request: Request) {
         sellPrice: p.sellPrice,
         unit: p.unit,
       }));
-      parsed = parseOrderFromText({ text: body.text, products });
+      parsed = parseOrderFromText({ text: body.text, products }, { isBanglaEnabled });
     }
 
     if (!parsed) {
@@ -122,7 +126,7 @@ export async function POST(request: Request) {
           : undefined,
       skipStockDeduction: true,
       initialStatus: "pending-approval",
-    });
+    }, companyId);
     return NextResponse.json(
       { ok: true, order: result.order, parsed: { ...parsed, items: cleanItems } },
       { status: 201 }

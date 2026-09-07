@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getUnassignedOrders, todayStr } from "@/lib/db";
+import { getCompanyIdFromRequest } from "@/lib/tenant";
 
 /**
  * GET /api/routes/unassigned
@@ -9,8 +10,9 @@ import { getUnassignedOrders, todayStr } from "@/lib/db";
  * Query: ?date=YYYY-MM-DD (optional, defaults to today BD)
  */
 export async function GET(request: Request) {
+  const companyId = await getCompanyIdFromRequest(request);
   const url = new URL(request.url);
   const date = url.searchParams.get("date") || todayStr();
-  const orders = getUnassignedOrders(date);
+  const orders = getUnassignedOrders(date, companyId);
   return NextResponse.json({ date, orders });
 }

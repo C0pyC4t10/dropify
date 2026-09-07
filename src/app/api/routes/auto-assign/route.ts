@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { autoAssignOrdersByCluster, getRiders } from "@/lib/db";
+import { getCompanyIdFromRequest } from "@/lib/tenant";
 
 /**
  * POST /api/routes/auto-assign
@@ -13,11 +14,12 @@ import { autoAssignOrdersByCluster, getRiders } from "@/lib/db";
  */
 export async function POST(request: Request) {
   try {
+    const companyId = await getCompanyIdFromRequest(request);
     const { date } = (await request.json()) as { date?: string };
     if (!date) {
       return NextResponse.json({ error: "date is required" }, { status: 400 });
     }
-    const result = autoAssignOrdersByCluster(date);
+    const result = autoAssignOrdersByCluster(date, companyId);
     // Enrich with rider names so the UI can show "3 orders → Mehedi" etc.
     const riders = getRiders();
     const riderNames: Record<number, string> = {};

@@ -93,7 +93,7 @@ function PrintBatchPage() {
     const bdTime = new Date(now.getTime() + 6 * 60 * 60 * 1000);
     const fallbackDate = bdTime.toISOString().slice(0, 10);
     const dateForName = todayDateStr || fallbackDate;
-    const safeBiz = (settings?.businessName || "Bazarey")
+    const safeBiz = (settings?.businessName || "")
       .replace(/[^A-Za-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 40);
@@ -117,7 +117,7 @@ function PrintBatchPage() {
     const bdTime = new Date(now.getTime() + 6 * 60 * 60 * 1000);
     const fallbackDate = bdTime.toISOString().slice(0, 10);
     const dateForName = todayDateStr || fallbackDate;
-    const safeBiz = (settings?.businessName || "Bazarey")
+    const safeBiz = (settings?.businessName || "")
       .replace(/[^A-Za-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 40);
@@ -512,7 +512,7 @@ function PrintBatchPage() {
 
       <div className={listView ? "list-wrap" : undefined} style={{ padding: 12 }}>
         <h1 style={{ fontSize: 16, fontWeight: 800, margin: "0 0 4px" }}>
-          {settings?.businessName || "Bazarey Ltd"} —{" "}
+          {settings?.businessName || ""} —{" "}
           {listView ? "Daily Orders Summary" : "Batch Delivery Sheet"}
         </h1>
         <p style={{ margin: "0 0 10px", fontSize: 11, color: "#444" }}>
@@ -881,7 +881,7 @@ const cancelledTotal = tableOrders
   }, [orders, todayDateStr]);
 
   const docId = `RPT-${printedDateStr.replace(/-/g, "")}-${tableOrders.length}`;
-  const businessName = settings?.businessName || "Bazarey Ltd";
+  const businessName = settings?.businessName || "";
 
   return (
     <div>

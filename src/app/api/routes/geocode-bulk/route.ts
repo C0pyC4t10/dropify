@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { bulkGeocodeOrders } from "@/lib/db";
+import { getCompanyIdFromRequest } from "@/lib/tenant";
 
 /**
  * POST /api/routes/geocode-bulk
@@ -12,10 +13,11 @@ import { bulkGeocodeOrders } from "@/lib/db";
  */
 export async function POST(request: Request) {
   try {
+    const companyId = await getCompanyIdFromRequest(request);
     const body = await request.json().catch(() => ({}));
     const date = typeof body?.date === "string" ? body.date : undefined;
     const limit = typeof body?.limit === "number" ? body.limit : undefined;
-    const result = await bulkGeocodeOrders({ date, limit });
+    const result = await bulkGeocodeOrders(companyId, { date, limit });
     return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

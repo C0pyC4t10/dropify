@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { geocodeAndRefineOrder, updateOrder } from "@/lib/db";
+import { getCompanyIdFromRequest } from "@/lib/tenant";
 
 /**
  * POST /api/orders/[id]/geocode
@@ -13,6 +14,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const companyId = await getCompanyIdFromRequest(request);
   const { id: idParam } = await params;
   const id = Number(idParam);
   if (!Number.isFinite(id)) {
@@ -21,10 +23,10 @@ export async function POST(
   try {
     const body = await request.json().catch(() => ({}));
     const force = Boolean(body?.force);
-    const result = await geocodeAndRefineOrder(id);
+    const result = await geocodeAndRefineOrder(id, companyId);
     if (force && result.reason === "no-improvement" && result.before && result.after) {
       // Force-update even when within 100m
-      const updated = updateOrder(id, { lat: result.after.lat, lng: result.after.lng });
+      const updated = updateOrder(id, { lat: result.after.lat, lng: result.after.lng }, companyId);
       return NextResponse.json({
         updated: !!updated,
         reason: "forced",

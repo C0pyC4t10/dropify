@@ -4,10 +4,11 @@ import "./globals.css";
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
 import { ThemeProvider } from "@/components/theme-provider";
+import { ActiveCompanyProvider } from "@/lib/active-company";
 
 export const metadata: Metadata = {
-  title: "Bazarey Ltd — Meat Delivery Ops",
-  description: "Order, invoice, rider & stock management for meat delivery",
+  title: "Delivery Ops",
+  description: "Order, invoice, rider & stock management",
 };
 
 // Prevent flash of wrong theme by hinting dark before paint
@@ -23,11 +24,13 @@ export default function RootLayout({
       <body>
         <Script id="theme-bootstrap" strategy="beforeInteractive">{themeBootstrap}</Script>
         <ThemeProvider>
-          <Header className="no-print permanent-header" />
-          <main className="main-content" style={{ maxWidth: "100%", margin: 0, padding: "16px 20px", paddingTop: 60 }}>
-            {children}
-          </main>
-          <Footer className="no-print" />
+          <ActiveCompanyProvider>
+            <Header className="no-print permanent-header" />
+            <main className="main-content" style={{ maxWidth: "100%", margin: 0, padding: "16px 20px", paddingTop: 60 }}>
+              {children}
+            </main>
+            <Footer className="no-print" />
+          </ActiveCompanyProvider>
         </ThemeProvider>
       </body>
     </html>
