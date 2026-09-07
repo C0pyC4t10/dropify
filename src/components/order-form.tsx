@@ -6,6 +6,7 @@ import type { Customer, DeliveryMode, Order, OrderSource, Product, Settings } fr
 import { formatMoney, DHAKA_AREAS_FLAT, CLUSTER_COLORS, CLUSTER_SHORT, SUB_CLUSTER_LABELS } from "@/lib/ui";
 import { getLocationForArea } from "@/lib/locations";
 import CustomerMatchBanner, { type CustomerMatch } from "./customer-match-banner";
+import { SearchableSelect, type SearchableOption } from "./searchable-select";
 
 interface Props {
   products: Product[];
@@ -99,6 +100,21 @@ export function OrderForm({ products, customers, settings, onClose, onSaved, emb
     if (!resolvedArea) return null;
     return getLocationForArea(resolvedArea);
   }, [area, customArea]);
+
+  const customerOptions: SearchableOption[] = useMemo(
+    () =>
+      customers.map((c) => ({
+        value: String(c.id),
+        label: c.name,
+        hint: c.phone,
+      })),
+    [customers]
+  );
+
+  const areaOptions: SearchableOption[] = useMemo(
+    () => DHAKA_AREAS_FLAT.map((a) => ({ value: a, label: a })),
+    []
+  );
 
   const productById = (id: number) => products.find((p) => p.id === id);
 
@@ -240,12 +256,13 @@ export function OrderForm({ products, customers, settings, onClose, onSaved, emb
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
           <div>
             <label>Customer (existing)</label>
-            <select value={customerId} onChange={(e) => pickCustomer(e.target.value)}>
-              <option value="">— New / walk-in —</option>
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>{c.name} · {c.phone}</option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={customerId}
+              onChange={pickCustomer}
+              options={customerOptions}
+              placeholder="— New / walk-in —"
+              emptyOption={{ value: "", label: "— New / walk-in —" }}
+            />
           </div>
           <div>
             <label>Order Date</label>
@@ -262,12 +279,13 @@ export function OrderForm({ products, customers, settings, onClose, onSaved, emb
           </div>
           <div>
             <label>Area (Dhaka Metro)</label>
-            <select value={area} onChange={(e) => setArea(e.target.value)}>
-              {DHAKA_AREAS_FLAT.map((a) => (
-                <option key={a} value={a}>{a}</option>
-              ))}
-              <option value="Other">Other (type custom)…</option>
-            </select>
+            <SearchableSelect
+              value={area}
+              onChange={setArea}
+              options={areaOptions}
+              placeholder="Select area…"
+              emptyOption={{ value: "Other", label: "Other (type custom)…" }}
+            />
             {area === "Other" && (
               <input
                 value={customArea}
