@@ -13,6 +13,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import type { Company } from "@/lib/types";
+import { ColorPalette } from "@/components/color-palette";
 
 interface AdminCompany extends Company {
   businessName?: string;
@@ -386,32 +387,12 @@ function CompanyForm({
             placeholder="/logos/fashion.svg"
           />
         </div>
-        <div>
+        <div style={{ gridColumn: "span 2" }}>
           <label>Accent color</label>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input
-              value={form.accentColor}
-              onChange={(e) => set("accentColor", e.target.value)}
-              placeholder="#4d9e47"
-              style={{ flex: 1 }}
-            />
-            <div
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 6,
-                border: "1px solid var(--border)",
-                background:
-                  form.accentColor &&
-                  /^#?[0-9a-fA-F]{3,8}$/.test(form.accentColor)
-                    ? form.accentColor.startsWith("#")
-                      ? form.accentColor
-                      : `#${form.accentColor}`
-                    : "var(--bg-elevated, #2a2a2a)",
-                flexShrink: 0,
-              }}
-            />
-          </div>
+          <ColorPalette
+            value={form.accentColor}
+            onChange={(hex) => set("accentColor", hex)}
+          />
         </div>
         {isNew && (
           <div style={{ gridColumn: "span 2" }}>
