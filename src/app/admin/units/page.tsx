@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Plus, Save, X, Edit3, Trash2 } from "lucide-react";
 import type { Company, Unit } from "@/lib/types";

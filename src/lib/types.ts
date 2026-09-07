@@ -271,7 +271,16 @@ export interface Supplier {
   contact: string;
   phone: string;
   address: string;
+  /**
+   * Legacy free-text CSV — kept for backward-compat reads. New writes
+   * populate `categoryIds` and leave this blank. The admin UI builds
+   * the CSV from `categoryIds` for display.
+   */
   category: string;
+  /** FK list of categories.id (per-tenant). Suppliers can belong to many. */
+  categoryIds: number[];
+  /** Convenience: category names loaded alongside categoryIds. */
+  categoryNames: string[];
   paymentTerms: string;
   notes: string;
   isActive: boolean;

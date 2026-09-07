@@ -82,6 +82,30 @@ export function ActiveCompanyProvider({ children }: { children: ReactNode }) {
     [companies, activeCompanyId]
   );
 
+  // Per-tenant accent color: when the active company has one configured,
+  // override the platform's CSS variables so buttons / highlights / the
+  // header wordmark accent all pick up the tenant's brand. Lives in a
+  // <style> tag scoped to <html data-company="..."> so theme toggles can
+  // still win via the [data-theme="light"] / [data-theme="dark"] selectors.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    if (!activeCompany) {
+      root.removeAttribute("data-company");
+      root.style.removeProperty("--accent-green-override");
+      root.style.removeProperty("--accent-amber-override");
+      return;
+    }
+    root.setAttribute("data-company", activeCompany.slug);
+    const accent = activeCompany.accentColor?.trim();
+    if (accent && /^#?[0-9a-fA-F]{3,8}$/.test(accent)) {
+      const hex = accent.startsWith("#") ? accent : `#${accent}`;
+      root.style.setProperty("--accent-green-override", hex);
+    } else {
+      root.style.removeProperty("--accent-green-override");
+    }
+  }, [activeCompany]);
+
   const value = useMemo<ActiveCompanyContextValue>(
     () => ({
       companies,

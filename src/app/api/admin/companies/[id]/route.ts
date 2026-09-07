@@ -41,6 +41,7 @@ export async function DELETE(
       db.prepare("DELETE FROM orders WHERE companyId = ?").run(id);
       db.prepare("DELETE FROM stock_movements WHERE companyId = ?").run(id);
       db.prepare("DELETE FROM purchase_orders WHERE companyId = ?").run(id);
+      db.prepare("DELETE FROM supplier_categories WHERE companyId = ?").run(id);
       db.prepare("DELETE FROM suppliers WHERE companyId = ?").run(id);
       db.prepare("DELETE FROM expenses WHERE companyId = ?").run(id);
       db.prepare("DELETE FROM products WHERE companyId = ?").run(id);

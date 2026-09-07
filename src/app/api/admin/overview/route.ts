@@ -1,11 +1,4 @@
 import { NextResponse } from "next/server";
-import {
-  getCompanies,
-  getProducts,
-  getOrders,
-  getCustomers,
-  getRiders,
-} from "@/lib/db";
 import Database from "better-sqlite3";
 import path from "path";
 

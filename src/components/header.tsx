@@ -22,6 +22,9 @@ import {
   Building2,
   ChevronDown,
   Shield,
+  Tag,
+  Ruler,
+  Activity,
 } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { useActiveCompany } from "@/lib/active-company";
@@ -136,9 +139,16 @@ const NAV = [
   { href: "/expenses", label: "Expenses", icon: Wallet },
   { href: "/riders", label: "Riders", icon: Bike },
   { href: "/customers", label: "Customers", icon: Users },
-  { href: "/companies", label: "Companies", icon: Building2 },
+  { href: "/companies", label: "Switch", icon: Building2, isSwitch: true },
   { href: "/admin", label: "Admin", icon: Shield },
   { href: "/settings", label: "Settings", icon: Settings },
+];
+
+const ADMIN_NAV = [
+  { href: "/admin", label: "Overview", icon: Activity },
+  { href: "/admin/companies", label: "Companies", icon: Building2 },
+  { href: "/admin/categories", label: "Categories", icon: Tag },
+  { href: "/admin/units", label: "Units", icon: Ruler },
 ];
 
 export function Header({ className = "" }: { className?: string }) {
@@ -323,6 +333,32 @@ export function Header({ className = "" }: { className?: string }) {
           {NAV.map((item) => {
             const active = isActive(item.href);
             const Icon = item.icon;
+            // The "Switch" nav item points to /companies which is now a
+            // legacy listing — opening it just opens the switcher dropdown.
+            if ((item as { isSwitch?: boolean }).isSwitch) {
+              return (
+                <button
+                  key={item.href}
+                  onClick={() => setSwitcherOpen(true)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    color: "var(--text-secondary)",
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    fontSize: 13,
+                    fontWeight: 500,
+                    padding: "6px 10px",
+                    borderRadius: 6,
+                  }}
+                >
+                  <Icon size={16} />
+                  <span className="no-print">{item.label}</span>
+                </button>
+              );
+            }
             return (
               <Link
                 key={item.href}

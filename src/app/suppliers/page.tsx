@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Plus, Phone, Truck, Edit3 } from "lucide-react";
-import type { Supplier } from "@/lib/types";
+import type { Category, Supplier } from "@/lib/types";
 import { ExportMenu, type ExportColumn } from "@/components/export-menu";
 
 export default function SuppliersPage() {
@@ -10,11 +10,16 @@ export default function SuppliersPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [edit, setEdit] = useState<Supplier | null>(null);
   const [loading, setLoading] = useState(true);
+  const [categories, setCategories] = useState<Category[]>([]);
 
   const load = useCallback(async () => {
     try {
-      const s = await fetch("/api/suppliers").then((r) => r.json());
+      const [s, c] = await Promise.all([
+        fetch("/api/suppliers").then((r) => r.json()),
+        fetch("/api/categories").then((r) => r.json()),
+      ]);
       setSuppliers(s);
+      setCategories(c);
     } catch (e) {
       console.error(e);
     } finally {
@@ -44,7 +49,7 @@ export default function SuppliersPage() {
               { header: "Contact Person", get: (s) => s.contact },
               { header: "Phone", get: (s) => s.phone },
               { header: "Address", get: (s) => s.address },
-              { header: "Categories", get: (s) => s.category },
+              { header: "Categories", get: (s) => s.categoryNames.join(", ") || s.category },
               { header: "Payment Terms", get: (s) => s.paymentTerms },
               { header: "Notes", get: (s) => s.notes },
             ] as ExportColumn<Supplier>[]}
@@ -84,7 +89,7 @@ export default function SuppliersPage() {
                 </div>
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>{s.name}</div>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{s.category || "All categories"}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{s.categoryNames.join(", ") || s.category || "All categories"}</div>
                 </div>
               </div>
               <button className="btn btn-secondary" style={{ fontSize: 11, padding: "4px 10px" }} onClick={() => setEdit(s)}>
@@ -106,6 +111,7 @@ export default function SuppliersPage() {
       {(showAdd || edit) && (
         <SupplierModal
           supplier={edit}
+          categories={categories}
           onClose={() => { setShowAdd(false); setEdit(null); }}
           onSaved={load}
         />
@@ -114,18 +120,37 @@ export default function SuppliersPage() {
   );
 }
 
-function SupplierModal({ supplier, onClose, onSaved }: { supplier: Supplier | null; onClose: () => void; onSaved: () => void }) {
+function SupplierModal({
+  supplier,
+  categories,
+  onClose,
+  onSaved,
+}: {
+  supplier: Supplier | null;
+  categories: Category[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const [form, setForm] = useState({
     name: supplier?.name || "",
     contact: supplier?.contact || "",
     phone: supplier?.phone || "",
     address: supplier?.address || "",
-    category: supplier?.category || "",
     paymentTerms: supplier?.paymentTerms || "Cash on delivery",
     notes: supplier?.notes || "",
+    categoryIds: supplier?.categoryIds ?? [],
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  const toggleCategory = (id: number) => {
+    setForm((prev) => ({
+      ...prev,
+      categoryIds: prev.categoryIds.includes(id)
+        ? prev.categoryIds.filter((x) => x !== id)
+        : [...prev.categoryIds, id],
+    }));
+  };
 
   const submit = async () => {
     setError("");
@@ -161,7 +186,6 @@ function SupplierModal({ supplier, onClose, onSaved }: { supplier: Supplier | nu
           <div><label>Contact Person</label><input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} /></div>
           <div><label>Phone</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
           <div style={{ gridColumn: "1 / -1" }}><label>Address</label><input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
-          <div><label>Categories (e.g. beef, chicken)</label><input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} /></div>
           <div>
             <label>Payment Terms</label>
             <select value={form.paymentTerms} onChange={(e) => setForm({ ...form, paymentTerms: e.target.value })}>
@@ -171,6 +195,50 @@ function SupplierModal({ supplier, onClose, onSaved }: { supplier: Supplier | nu
               <option>30-day credit</option>
               <option>Advance</option>
             </select>
+          </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label>Categories (tap to toggle)</label>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 6,
+                padding: 8,
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                minHeight: 38,
+                background: "var(--bg-primary)",
+                alignItems: "center",
+              }}
+            >
+              {categories.length === 0 && (
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                  No categories yet — add some in /admin/categories first.
+                </span>
+              )}
+              {categories.map((c) => {
+                const active = form.categoryIds.includes(c.id);
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => toggleCategory(c.id)}
+                    style={{
+                      fontSize: 11,
+                      padding: "4px 10px",
+                      borderRadius: 999,
+                      border: `1px solid ${active ? "var(--accent-green)" : "var(--border)"}`,
+                      background: active ? "rgba(77, 158, 71, 0.18)" : "transparent",
+                      color: active ? "var(--accent-green)" : "var(--text-secondary)",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    {c.name}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
         {error && <p style={{ color: "var(--accent-red)", fontSize: 13, margin: "12px 0 0" }}>{error}</p>}

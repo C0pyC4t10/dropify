@@ -5,3 +5,10 @@
  *  so it can be imported from both runtimes.
  */
 export const ACTIVE_COMPANY_COOKIE = "active_company_id";
+
+/** Cookie set when the operator explicitly unlocks the Dropify admin console.
+ *  When this cookie is absent, every /admin/** route renders a "locked"
+ *  gate. Setting the cookie (via the form on /admin) toggles admin mode
+ *  for the current browser session — no real auth, but enough to keep
+ *  the console out of reach from an unattended dispatcher terminal. */
+export const ADMIN_MODE_COOKIE = "dropify_admin_mode";

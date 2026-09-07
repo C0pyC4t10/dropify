@@ -1,3 +1,19 @@
+@media (max-width: 820px) {
+  .live-clock {
+    display: none;
+  }
+}
+
+/* Per-tenant accent color override. Set by <ActiveCompanyProvider> when
+ * the active company has an accentColor configured. Wins over the
+ * dark/light theme defaults so each tenant keeps its brand identity
+ * regardless of the operator's theme preference. The [data-company]
+ * selector adds specificity (same level as [data-theme]) so the override
+ * is resolved after the theme defaults; CSS variable fallbacks still let
+ * the rule safely no-op when no override has been set. */
+:root[data-company] {
+  --accent-green: var(--accent-green-override, var(--accent-green));
+}
 @import "tailwindcss";
 
 @source not "../../data";

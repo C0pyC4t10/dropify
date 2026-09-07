@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import Link from "next/link";
 import dynamic from "next/dynamic";
-import { Save, Store, MapPin, Plus, Trash2, Truck } from "lucide-react";
+import { Save, Store, MapPin, Plus, Trash2, Truck, ArrowRight } from "lucide-react";
 import type { Settings } from "@/lib/types";
 import type { DeliveryPartner } from "@/lib/delivery-partners";
 
@@ -87,6 +88,10 @@ export default function SettingsPage() {
 
   if (!form) return null;
 
+  // Branding (logo + accent color) is per-tenant on the companies row and
+  // edited from /admin/companies. Surface a teaser card here so the
+  // operator knows where to go without cluttering this operational page.
+
   // Functional setForm updater — always uses the latest form state, so
   // the child component's onChange callback can't capture a stale `form`.
   const set = (k: string, v: unknown) =>
@@ -111,6 +116,45 @@ export default function SettingsPage() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Settings</h1>
       </div>
+
+      <Link
+        href="/admin/companies"
+        className="card"
+        style={{
+          padding: 14,
+          marginBottom: 16,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          textDecoration: "none",
+          color: "var(--text-primary)",
+        }}
+      >
+        <div
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 8,
+            background: "rgba(77, 158, 71, 0.18)",
+            color: "var(--accent-green)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Store size={16} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>
+            Branding (logo, accent color, tagline) lives in /admin/companies
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+            Dropify keeps per-tenant brand settings on the company row so it can show a
+            custom icon + color in the header.
+          </div>
+        </div>
+        <ArrowRight size={16} color="var(--text-muted)" />
+      </Link>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))", gap: 16, marginBottom: 16 }}>
         <div className="card" style={{ padding: 20 }}>

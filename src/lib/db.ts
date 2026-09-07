@@ -184,6 +184,7 @@ CREATE TABLE IF NOT EXISTS stock_movements (
 
 CREATE TABLE IF NOT EXISTS suppliers (
   id INTEGER PRIMARY KEY,
+  companyId INTEGER NOT NULL,
   name TEXT NOT NULL,
   contact TEXT NOT NULL DEFAULT '',
   phone TEXT NOT NULL DEFAULT '',
@@ -193,6 +194,13 @@ CREATE TABLE IF NOT EXISTS suppliers (
   notes TEXT NOT NULL DEFAULT '',
   isActive INTEGER NOT NULL DEFAULT 1,
   createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS supplier_categories (
+  supplierId INTEGER NOT NULL,
+  categoryId INTEGER NOT NULL,
+  companyId INTEGER NOT NULL,
+  PRIMARY KEY (supplierId, categoryId)
 );
 
 CREATE TABLE IF NOT EXISTS purchase_orders (
@@ -357,6 +365,8 @@ function initSchema(db: Database.Database): void {
   ensureUnitsIndex(db);
   ensureProductCategoryAndUnitFKs(db);
   seedCategoriesAndUnitsForActiveCompanies(db);
+  ensureSupplierCategoriesTable(db);
+  backfillSupplierCategories(db);
 
   // One-time backfill of lat/lng for legacy orders + customers whose rows
   // predate the routing columns. We pull the centroid from the seeded
@@ -877,12 +887,67 @@ function seedCategoriesAndUnitsForActiveCompanies(db: Database.Database): void {
   }
 }
 
+/**
+ * Add the per-tenant supplier↔category join table. suppliers.category
+ * (legacy CSV) stays in place so old reads keep working; new writes
+ * populate supplier_categories and leave the CSV blank.
+ */
+function ensureSupplierCategoriesTable(_db: Database.Database): void {
+  /* created in SCHEMA above */
+}
 
-// --- Migration helper (kept for reference; primary migration done by scripts/migrate-from-json.cjs) ---
-function migrateFromJson(): void {
-  // No-op: one-time data/db.json → meat_delivery.db migration has already
-  // been performed. db.json is retained as a fallback if the .db file is
-  // ever deleted. See scripts/migrate-from-json.cjs.
+/**
+ * Backfill: for every supplier that has a non-empty `category` CSV but no
+ * join-table rows yet, split the CSV into slugs and either find or create
+ * a matching category per tenant. Idempotent — re-running is a no-op.
+ */
+function backfillSupplierCategories(db: Database.Database): void {
+  const hasRows = (
+    db.prepare("SELECT COUNT(*) AS n FROM supplier_categories").get() as { n: number }
+  ).n;
+  if (hasRows > 0) return; // already backfilled in some prior boot
+
+  const findCat = db.prepare(
+    "SELECT id FROM categories WHERE companyId = ? AND slug = ?"
+  );
+  const insertCat = db.prepare(
+    `INSERT INTO categories (id, companyId, slug, name, description, sortOrder, isActive, createdAt)
+     VALUES (?, ?, ?, ?, '', 999, 1, ?)`
+  );
+  const insertLink = db.prepare(
+    "INSERT OR IGNORE INTO supplier_categories (supplierId, categoryId, companyId) VALUES (?, ?, ?)"
+  );
+  const updateSupplierLegacyCsv = db.prepare(
+    "UPDATE suppliers SET category = '' WHERE id = ?"
+  );
+  const now = new Date().toISOString();
+  const cache = new Map<string, number>();
+  const suppliers = db.prepare(
+    "SELECT id, companyId, category FROM suppliers WHERE category <> ''"
+  ).all() as Array<{ id: number; companyId: number; category: string }>;
+  const tx = db.transaction(() => {
+    for (const s of suppliers) {
+      const slugs = s.category
+        .split(",")
+        .map((x) => x.trim().toLowerCase())
+        .filter(Boolean);
+      for (const slug of slugs) {
+        const key = `${s.companyId}:${slug}`;
+        let catId = cache.get(key);
+        if (!catId) {
+          const found = findCat.get(s.companyId, slug) as { id: number } | undefined;
+          catId = found?.id ?? nextId(db, "categories");
+          if (!found) {
+            insertCat.run(catId, s.companyId, slug, slug, now);
+          }
+          cache.set(key, catId);
+        }
+        insertLink.run(s.id, catId, s.companyId);
+      }
+      updateSupplierLegacyCsv.run(s.id);
+    }
+  });
+  tx();
 }
 
 interface StoredData {
@@ -976,14 +1041,33 @@ function rowToRider(r: Record<string, unknown>): Rider {
   };
 }
 
-function rowToSupplier(r: Record<string, unknown>): Supplier {
+function rowToSupplier(r: Record<string, unknown>, companyId?: number): Supplier {
+  const id = r.id as number;
+  let categoryIds: number[] = [];
+  let categoryNames: string[] = [];
+  if (companyId != null) {
+    const db = getDb();
+    const joins = db
+      .prepare(
+        `SELECT sc.categoryId, c.name
+           FROM supplier_categories sc
+           LEFT JOIN categories c ON c.id = sc.categoryId AND c.companyId = sc.companyId
+          WHERE sc.supplierId = ? AND sc.companyId = ?
+          ORDER BY sc.categoryId ASC`
+      )
+      .all(id, companyId) as Array<{ categoryId: number; name: string | null }>;
+    categoryIds = joins.map((j) => j.categoryId);
+    categoryNames = joins.map((j) => j.name ?? "");
+  }
   return {
-    id: r.id as number,
+    id,
     name: r.name as string,
     contact: (r.contact as string) ?? "",
     phone: (r.phone as string) ?? "",
     address: (r.address as string) ?? "",
     category: (r.category as string) ?? "",
+    categoryIds,
+    categoryNames,
     paymentTerms: (r.paymentTerms as string) ?? "",
     notes: (r.notes as string) ?? "",
     isActive: (r.isActive as number) === 1,
@@ -1062,6 +1146,14 @@ function rowToPurchaseOrder(r: Record<string, unknown>): PurchaseOrder {
     updatedAt: r.updatedAt as string,
   };
 }
+
+// --- Migration helper (kept for reference; primary migration done by scripts/migrate-from-json.cjs) ---
+function migrateFromJson(): void {
+  // No-op: one-time data/db.json → meat_delivery.db migration has already
+  // been performed. db.json is retained as a fallback if the .db file is
+  // ever deleted. See scripts/migrate-from-json.cjs.
+}
+
 
 // --- Helpers ---
 
@@ -3289,7 +3381,7 @@ export function getSuppliers(companyId: number): Supplier[] {
     db
       .prepare("SELECT * FROM suppliers WHERE companyId = ? ORDER BY id ASC")
       .all(companyId) as Record<string, unknown>[]
-  ).map(rowToSupplier);
+  ).map((r) => rowToSupplier(r, companyId));
 }
 
 export function getSupplier(id: number, companyId: number): Supplier | undefined {
@@ -3297,15 +3389,30 @@ export function getSupplier(id: number, companyId: number): Supplier | undefined
   const row = db
     .prepare("SELECT * FROM suppliers WHERE id = ? AND companyId = ?")
     .get(id, companyId) as Record<string, unknown> | undefined;
-  return row ? rowToSupplier(row) : undefined;
+  return row ? rowToSupplier(row, companyId) : undefined;
 }
 
-export function createSupplier(
-  data: Omit<Supplier, "id" | "createdAt" | "isActive">,
-  companyId: number
-): Supplier {
+/** What the API accepts on POST/PUT for a supplier. The legacy
+ *  `category` CSV column is computed server-side from categoryIds. */
+export interface NewSupplierInput {
+  name: string;
+  contact: string;
+  phone: string;
+  address: string;
+  paymentTerms: string;
+  notes: string;
+  categoryIds: number[];
+}
+
+export function createSupplier(data: NewSupplierInput, companyId: number): Supplier {
   const db = getDb();
   const id = nextId(db, "suppliers");
+  // Build a CSV from categoryIds for the legacy column so old code paths
+  // that read `supplier.category` keep showing something.
+  const legacyCsv = data.categoryIds
+    .map((cid) => getCategory(cid, companyId)?.slug ?? "")
+    .filter(Boolean)
+    .join(",");
   db.prepare(
     `INSERT INTO suppliers (id, companyId, name, contact, phone, address, category, paymentTerms, notes, isActive, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
   ).run(
@@ -3315,23 +3422,29 @@ export function createSupplier(
     data.contact,
     data.phone,
     data.address,
-    data.category,
+    legacyCsv,
     data.paymentTerms,
     data.notes,
     new Date().toISOString()
   );
+  // Insert join-table rows in one transaction.
+  replaceSupplierCategories(id, data.categoryIds, companyId);
   return getSupplier(id, companyId)!;
 }
 
 export function updateSupplier(
   id: number,
-  data: Partial<Supplier>,
+  data: Partial<NewSupplierInput>,
   companyId: number
 ): Supplier | null {
   const db = getDb();
   const existing = getSupplier(id, companyId);
   if (!existing) return null;
   const merged: Supplier = { ...existing, ...data, id: existing.id };
+  const csvFromIds = (merged.categoryIds ?? [])
+    .map((cid: number) => getCategory(cid, companyId)?.slug ?? "")
+    .filter(Boolean)
+    .join(",");
   db.prepare(
     `UPDATE suppliers SET name=?, contact=?, phone=?, address=?, category=?, paymentTerms=?, notes=?, isActive=? WHERE id=? AND companyId=?`
   ).run(
@@ -3339,14 +3452,39 @@ export function updateSupplier(
     merged.contact,
     merged.phone,
     merged.address,
-    merged.category,
+    csvFromIds,
     merged.paymentTerms,
     merged.notes,
     merged.isActive ? 1 : 0,
     id,
     companyId
   );
-  return merged;
+  if (data.categoryIds !== undefined) {
+    replaceSupplierCategories(id, data.categoryIds, companyId);
+  }
+  return getSupplier(id, companyId) ?? null;
+}
+
+/** Replace the supplier↔category links for a given supplier. */
+function replaceSupplierCategories(
+  supplierId: number,
+  categoryIds: number[],
+  companyId: number
+): void {
+  const db = getDb();
+  const tx = db.transaction(() => {
+    db.prepare("DELETE FROM supplier_categories WHERE supplierId = ? AND companyId = ?").run(
+      supplierId,
+      companyId
+    );
+    const insert = db.prepare(
+      "INSERT INTO supplier_categories (supplierId, categoryId, companyId) VALUES (?, ?, ?)"
+    );
+    for (const cid of categoryIds) {
+      insert.run(supplierId, cid, companyId);
+    }
+  });
+  tx();
 }
 
 // --- Public API: Purchase Orders ---
@@ -3447,7 +3585,7 @@ export function updatePurchaseOrder(
     id,
     companyId
   );
-  return merged;
+  return getPurchaseOrder(id, companyId) ?? null;
 }
 
 export function setPurchaseOrderStatus(
