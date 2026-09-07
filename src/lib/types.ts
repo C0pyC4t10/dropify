@@ -1,5 +1,30 @@
 import type { DeliveryPartner } from "./delivery-partners";
 
+/**
+ * A company is the multi-tenant root: each company owns its own catalog,
+ * orders, settings, suppliers, purchase orders, expenses, and stock
+ * movements. Customers and riders are SHARED across companies.
+ *
+ * The active company is tracked client-side in the `active_company_id`
+ * cookie and read on every API request so the right rows are scoped.
+ */
+export interface Company {
+  id: number;
+  /** URL-safe identifier (e.g. "meat", "fashion"). Unique. */
+  slug: string;
+  /** Display name shown in the header / footer / invoices. */
+  name: string;
+  /** Short one-liner shown under the brand name. */
+  tagline: string;
+  /** Optional logo URL. Unused for now — kept for future theming. */
+  logoUrl: string;
+  /** Optional accent color override. Unused for now — kept for future theming. */
+  accentColor: string;
+  /** Soft-delete flag. Hidden companies are skipped in API lists. */
+  isActive: boolean;
+  createdAt: string;
+}
+
 export type ProductCategory = "beef" | "chicken" | "mutton" | "offal" | "fish";
 
 export type Unit = "kg" | "pcs";

@@ -7,6 +7,7 @@ import { getLocationForArea } from "./locations";
 import { haversineMeters } from "./geo";
 import { geocodeAddress } from "./geocode";
 import type {
+  Company,
   Customer,
   DeliveryMode,
   Expense,
@@ -55,6 +56,17 @@ function getDb(): Database.Database {
 
 // --- Schema ---
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS companies (
+  id INTEGER PRIMARY KEY,
+  slug TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  tagline TEXT NOT NULL DEFAULT '',
+  logoUrl TEXT NOT NULL DEFAULT '',
+  accentColor TEXT NOT NULL DEFAULT '',
+  isActive INTEGER NOT NULL DEFAULT 1,
+  createdAt TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   id INTEGER PRIMARY KEY,
   data TEXT NOT NULL
@@ -300,6 +312,15 @@ function initSchema(db: Database.Database): void {
   db.exec("CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category)");
 
+  // ── Multi-tenant migration (PR 1: additive, no behavior change) ──
+  // Runs BEFORE the legacy settings backfill so that backfill sees the new
+  // `(companyId PK, data)` shape and queries with WHERE companyId = 1.
+  ensureCompaniesTable(db);
+  ensureCompanyIdColumns(db);
+  ensureCompanyIdIndexes(db);
+  ensureSettingsReshape(db);
+  ensureSeedCompaniesAndSettings(db);
+
   // One-time backfill of lat/lng for legacy orders + customers whose rows
   // predate the routing columns. We pull the centroid from the seeded
   // area_centroids table; orders/customers with an unrecognized area get the
@@ -358,9 +379,11 @@ function initSchema(db: Database.Database): void {
 
   // Settings: ensure the JSON blob has all the fields we expect. If missing,
   // backfill from defaults so legacy settings rows don't crash callers.
-  const settingsRow = db.prepare("SELECT data FROM settings WHERE id = 1").get() as
-    | { data: string }
-    | undefined;
+  // (Multi-tenant migration above has already reshaped settings to
+  // `(companyId PK, data)`, so the meat company's row lives at companyId=1.)
+  const settingsRow = db
+    .prepare("SELECT data FROM settings WHERE companyId = 1")
+    .get() as { data: string } | undefined;
   if (settingsRow) {
     const parsed = JSON.parse(settingsRow.data) as Record<string, unknown>;
     let dirty = false;
@@ -384,10 +407,11 @@ function initSchema(db: Database.Database): void {
     }
     if (dirty) {
       parsed.updatedAt = new Date().toISOString();
-      db.prepare("UPDATE settings SET data = ? WHERE id = 1").run(JSON.stringify(parsed));
+      db.prepare("UPDATE settings SET data = ? WHERE companyId = 1").run(JSON.stringify(parsed));
     }
   }
-  // Seed default settings if empty
+  // Seed default settings if empty (only relevant for fresh DBs; on upgrade
+  // the multi-tenant migration above has already inserted the meat row).
   const settingsCount = (db.prepare("SELECT COUNT(*) AS n FROM settings").get() as { n: number }).n;
   if (settingsCount === 0) {
     const defaults: Settings = {
@@ -411,7 +435,7 @@ function initSchema(db: Database.Database): void {
       defaultDeliveryPartnerId: "",
       updatedAt: new Date().toISOString(),
     };
-    db.prepare("INSERT INTO settings (id, data) VALUES (?, ?)").run(1, JSON.stringify(defaults));
+    db.prepare("INSERT INTO settings (companyId, data) VALUES (?, ?)").run(1, JSON.stringify(defaults));
   }
   // Seed default suppliers if empty (preserved from JSON)
   const supplierCount = (db.prepare("SELECT COUNT(*) AS n FROM suppliers").get() as { n: number }).n;
@@ -456,6 +480,147 @@ function initSchema(db: Database.Database): void {
     );
   }
 }
+
+function tableHasColumn(db: Database.Database, table: string, column: string): boolean {
+  const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(
+    (c) => c.name
+  );
+  return cols.includes(column);
+}
+
+/** `companies` table is already in the SCHEMA constant; this helper exists
+ *  for symmetry and so future schema edits live next to the migration code. */
+function ensureCompaniesTable(_db: Database.Database): void {
+  /* no-op — table is created in SCHEMA above */
+}
+
+/** Add nullable companyId to each per-company table if not already present.
+ *  PR 2 will tighten these to NOT NULL DEFAULT 1 once every read/write is
+ *  company-aware. */
+function ensureCompanyIdColumns(db: Database.Database): void {
+  const tables = ["products", "orders", "stock_movements", "suppliers", "purchase_orders", "expenses"];
+  for (const t of tables) {
+    if (!tableHasColumn(db, t, "companyId")) {
+      db.exec(`ALTER TABLE ${t} ADD COLUMN companyId INTEGER`);
+    }
+    // Backfill NULLs to 1 (the meat company). Idempotent — re-running on a
+    // populated DB is a no-op because rows won't be NULL after the first run.
+    db.exec(`UPDATE ${t} SET companyId = 1 WHERE companyId IS NULL`);
+  }
+}
+
+/** Composite indexes per per-company table to keep per-tenant reads fast once
+ *  PR 2 adds WHERE companyId = ? to every query. Idempotent via IF NOT EXISTS. */
+function ensureCompanyIdIndexes(db: Database.Database): void {
+  db.exec("CREATE INDEX IF NOT EXISTS idx_products_company ON products(companyId, id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_orders_company ON orders(companyId, id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_stock_company ON stock_movements(companyId, id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_suppliers_company ON suppliers(companyId, id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_orders_company ON purchase_orders(companyId, id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_expenses_company ON expenses(companyId, id)");
+}
+
+/** Reshape `settings` from `(id PK, data)` → `(companyId PK, data)`. The old
+ *  shape is incompatible with multi-tenancy because there was only one row.
+ *  Strategy: rebuild the table once, copy data over, drop the legacy table.
+ *  Idempotent: detects the new shape via PRAGMA table_info and skips. */
+function ensureSettingsReshape(db: Database.Database): void {
+  const cols = (db.prepare("PRAGMA table_info(settings)").all() as Array<{ name: string }>).map(
+    (c) => c.name
+  );
+  if (cols.includes("companyId")) return; // already on the new shape
+
+  // Old shape had `id` and `data`. Rebuild.
+  if (!cols.includes("id") || !cols.includes("data")) {
+    throw new Error(`settings table has unexpected columns: ${cols.join(",")}`);
+  }
+
+  const tx = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE settings_new (
+        companyId INTEGER PRIMARY KEY,
+        data TEXT NOT NULL
+      )
+    `);
+    // Preserve any existing row by mapping id=1 → companyId=1.
+    db.exec(`INSERT INTO settings_new (companyId, data) SELECT id, data FROM settings`);
+    db.exec(`DROP TABLE settings`);
+    db.exec(`ALTER TABLE settings_new RENAME TO settings`);
+  });
+  tx();
+}
+
+/** Seed the meat company as id=1 and backfill its settings row. Other
+ *  companies are created via the admin UI in PR 2, not seeded here. */
+function ensureSeedCompaniesAndSettings(db: Database.Database): void {
+  const now = new Date().toISOString();
+
+  // Companies: seed only if empty. The meat company always uses id=1 so the
+  // existing rows we just backfilled (companyId=1) point to a valid row.
+  const companyCount = (db.prepare("SELECT COUNT(*) AS n FROM companies").get() as { n: number }).n;
+  if (companyCount === 0) {
+    db.prepare(
+      `INSERT INTO companies (id, slug, name, tagline, logoUrl, accentColor, isActive, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`
+    ).run(
+      1,
+      "meat",
+      "Bazarey Meat Delivery",
+      "Fresh meat, doorstep delivery",
+      "",
+      "",
+      now
+    );
+  }
+
+  // Settings: ensure every active company has a settings row. The meat
+  // company (id=1) inherits its data from the legacy singleton we just
+  // reshaped; other companies get a blank Settings seeded from defaults.
+  const companies = db
+    .prepare("SELECT id, slug, name, tagline FROM companies WHERE isActive = 1")
+    .all() as Array<{ id: number; slug: string; name: string; tagline: string }>;
+  for (const c of companies) {
+    const existing = db.prepare("SELECT companyId FROM settings WHERE companyId = ?").get(c.id);
+    if (existing) continue;
+    const defaults: Settings = makeCompanyDefaults(c.name, c.tagline);
+    db.prepare("INSERT INTO settings (companyId, data) VALUES (?, ?)").run(
+      c.id,
+      JSON.stringify(defaults)
+    );
+  }
+}
+
+/** Per-company default Settings blob. Meat company (slug='meat') inherits
+ *  the meat-flavoured defaults; everyone else gets a blank slate with the
+ *  Aftabnagar hub coords as a placeholder origin. */
+function makeCompanyDefaults(name: string, tagline: string): Settings {
+  const isMeat = tagline.toLowerCase().includes("meat") || tagline.toLowerCase().includes("fresh meat");
+  const hub = getAreaCentroid("Aftabnagar");
+  return {
+    id: 1,
+    businessName: name,
+    tagline,
+    phone: "01XXXXXXXXX",
+    address: "Aftabnagar, Dhaka, Bangladesh",
+    freeDeliveryThreshold: 1000,
+    deliveryCharge: isMeat ? 40 : 60,
+    invoiceNote: isMeat
+      ? "Thank you for ordering. Fresh meat delivered daily."
+      : "Thank you for your order.",
+    posPrinterName: "Xprinter XP-350BM",
+    wpWebhookSecret: "",
+    wpSiteUrl: "",
+    wpOutboundEnabled: true,
+    wpAutoApprove: false,
+    shopLat: hub.lat,
+    shopLng: hub.lng,
+    bkashPaymentQr: "",
+    deliveryPartners: [],
+    defaultDeliveryPartnerId: "",
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 
 // --- Migration helper (kept for reference; primary migration done by scripts/migrate-from-json.cjs) ---
 function migrateFromJson(): void {
@@ -689,20 +854,28 @@ function nextId(db: Database.Database, name: string): number {
 
 // --- Public API: Settings ---
 
-export function getSettings(): Settings {
+/** Default company used by the legacy single-tenant code paths. After PR 2
+ *  every caller must pass an explicit companyId; the default keeps PR 1
+ *  backward-compatible with no behavior change. */
+export const DEFAULT_COMPANY_ID = 1;
+
+export function getSettings(companyId: number = DEFAULT_COMPANY_ID): Settings {
   migrateFromJson();
   const db = getDb();
-  const row = db.prepare("SELECT data FROM settings WHERE id = 1").get() as
-    | { data: string }
-    | undefined;
-  if (!row) throw new Error("settings missing");
+  const row = db
+    .prepare("SELECT data FROM settings WHERE companyId = ?")
+    .get(companyId) as { data: string } | undefined;
+  if (!row) throw new Error(`settings missing for companyId=${companyId}`);
   return JSON.parse(row.data) as Settings;
 }
 
-export function updateSettings(data: Partial<Settings>): Settings {
+export function updateSettings(
+  data: Partial<Settings>,
+  companyId: number = DEFAULT_COMPANY_ID
+): Settings {
   migrateFromJson();
   const db = getDb();
-  const current = getSettings();
+  const current = getSettings(companyId);
   const merged: Settings = {
     ...current,
     ...data,
@@ -726,8 +899,53 @@ export function updateSettings(data: Partial<Settings>): Settings {
         : current.defaultDeliveryPartnerId ?? "",
     updatedAt: new Date().toISOString(),
   };
-  db.prepare("UPDATE settings SET data = ? WHERE id = 1").run(JSON.stringify(merged));
+  db.prepare("UPDATE settings SET data = ? WHERE companyId = ?").run(
+    JSON.stringify(merged),
+    companyId
+  );
   return merged;
+}
+
+// --- Public API: Companies ---
+
+function rowToCompany(r: Record<string, unknown>): Company {
+  return {
+    id: r.id as number,
+    slug: r.slug as string,
+    name: r.name as string,
+    tagline: (r.tagline as string) ?? "",
+    logoUrl: (r.logoUrl as string) ?? "",
+    accentColor: (r.accentColor as string) ?? "",
+    isActive: ((r.isActive as number) ?? 1) === 1,
+    createdAt: r.createdAt as string,
+  };
+}
+
+/** All active companies, ordered by id ASC. Inactive companies are hidden
+ *  from the switcher but still resolvable via getCompany(id). */
+export function getCompanies(): Company[] {
+  const db = getDb();
+  return (
+    db
+      .prepare("SELECT * FROM companies WHERE isActive = 1 ORDER BY id ASC")
+      .all() as Record<string, unknown>[]
+  ).map(rowToCompany);
+}
+
+export function getCompany(id: number): Company | undefined {
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM companies WHERE id = ?").get(id) as
+    | Record<string, unknown>
+    | undefined;
+  return row ? rowToCompany(row) : undefined;
+}
+
+export function getCompanyBySlug(slug: string): Company | undefined {
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM companies WHERE slug = ?").get(slug) as
+    | Record<string, unknown>
+    | undefined;
+  return row ? rowToCompany(row) : undefined;
 }
 
 // --- Public API: Products & Stock ---
@@ -1858,9 +2076,9 @@ export function assignRider(orderId: number, riderId: number | null): Order | nu
 
 /** Returns the shop's lat/lng for route planning. Falls back to Aftabnagar
  *  centroid if settings have no shop coords set yet. */
-export function getShopLocation(): { lat: number; lng: number } {
+export function getShopLocation(companyId: number = DEFAULT_COMPANY_ID): { lat: number; lng: number } {
   try {
-    const s = getSettings();
+    const s = getSettings(companyId);
     if (typeof s.shopLat === "number" && typeof s.shopLng === "number") {
       return { lat: s.shopLat, lng: s.shopLng };
     }
