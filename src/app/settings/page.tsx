@@ -135,7 +135,7 @@ export default function SettingsPage() {
             width: 36,
             height: 36,
             borderRadius: 8,
-            background: "rgba(77, 158, 71, 0.18)",
+            background: "var(--tint-brand-18)",
             color: "var(--accent-green)",
             display: "flex",
             alignItems: "center",

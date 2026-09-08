@@ -99,9 +99,9 @@ export default function PurchaseOrderDetail() {
                   onClick={() => setStatus(s)}
                   className="btn"
                   style={{
-                    background: done ? "rgba(232,163,61,0.18)" : current ? "rgba(77,158,71,0.18)" : "var(--bg-primary)",
+                    background: done ? "var(--tint-warning-18)" : current ? "var(--tint-brand-18)" : "var(--bg-primary)",
                     color: done ? "var(--accent-amber)" : current ? "var(--accent-green)" : "var(--text-muted)",
-                    border: `1px solid ${done ? "rgba(232,163,61,0.4)" : current ? "rgba(77,158,71,0.4)" : "var(--border)"}`,
+                    border: `1px solid ${done ? "color-mix(in srgb, var(--color-warning) 40%, transparent)" : current ? "color-mix(in srgb, var(--color-brand) 40%, transparent)" : "var(--border)"}`,
                     fontSize: 12,
                     display: "flex",
                     alignItems: "center",

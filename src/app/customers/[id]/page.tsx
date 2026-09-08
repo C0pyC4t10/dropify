@@ -287,8 +287,8 @@ export default function EditCustomerPage({ params }: { params: Promise<{ id: str
                 fontFamily: "monospace",
                 fontWeight: 700,
                 color: "var(--accent-green)",
-                background: "rgba(77,158,71,0.10)",
-                border: "1px solid rgba(77,158,71,0.30)",
+                background: "color-mix(in srgb, var(--color-brand) 10%, transparent)",
+                border: "1px solid color-mix(in srgb, var(--color-brand) 30%, transparent)",
                 borderRadius: 999,
                 verticalAlign: "middle",
               }}
@@ -319,8 +319,8 @@ export default function EditCustomerPage({ params }: { params: Promise<{ id: str
           style={{
             padding: "10px 14px",
             borderRadius: 8,
-            background: "rgba(226, 59, 46, 0.10)",
-            border: "1px solid rgba(226, 59, 46, 0.35)",
+            background: "var(--tint-danger-12)",
+            border: "1px solid color-mix(in srgb, var(--color-danger) 35%, transparent)",
             color: "var(--accent-red)",
             fontSize: 13,
             marginBottom: 16,
@@ -531,24 +531,24 @@ export default function EditCustomerPage({ params }: { params: Promise<{ id: str
               label="Delivered"
               value={stats.delivered}
               color="var(--accent-green)"
-              bg="rgba(77,158,71,0.10)"
-              border="rgba(77,158,71,0.30)"
+              bg="color-mix(in srgb, var(--color-brand) 10%, transparent)"
+              border="color-mix(in srgb, var(--color-brand) 30%, transparent)"
             />
             <StatChip
               icon={<XCircle size={12} />}
               label="Cancelled"
               value={stats.cancelled}
               color="var(--accent-red)"
-              bg="rgba(226,59,46,0.10)"
-              border="rgba(226,59,46,0.30)"
+              bg="var(--tint-danger-12)"
+              border="color-mix(in srgb, var(--color-danger) 30%, transparent)"
             />
             <StatChip
               icon={<Clock size={12} />}
               label="In progress"
               value={stats.inProgress}
               color="var(--accent-amber, #f0a93b)"
-              bg="rgba(240,169,59,0.10)"
-              border="rgba(240,169,59,0.30)"
+              bg="color-mix(in srgb, var(--color-warning) 10%, transparent)"
+              border="color-mix(in srgb, var(--color-warning) 30%, transparent)"
             />
           </div>
         </div>
@@ -625,13 +625,13 @@ function StatChip({
 }
 
 const STATUS_COLORS: Record<string, { fg: string; bg: string; border: string; label: string }> = {
-  delivered:        { fg: "var(--accent-green)",     bg: "rgba(77,158,71,0.10)",  border: "rgba(77,158,71,0.30)",  label: "Delivered" },
-  cancelled:        { fg: "var(--accent-red)",       bg: "rgba(226,59,46,0.10)",  border: "rgba(226,59,46,0.30)",  label: "Cancelled" },
+  delivered:        { fg: "var(--accent-green)",     bg: "color-mix(in srgb, var(--color-brand) 10%, transparent)",  border: "color-mix(in srgb, var(--color-brand) 30%, transparent)",  label: "Delivered" },
+  cancelled:        { fg: "var(--accent-red)",       bg: "var(--tint-danger-12)",  border: "color-mix(in srgb, var(--color-danger) 30%, transparent)",  label: "Cancelled" },
   confirmed:        { fg: "var(--accent-blue, #5aa8ff)", bg: "rgba(90,168,255,0.10)", border: "rgba(90,168,255,0.30)", label: "Confirmed" },
-  preparing:        { fg: "var(--accent-amber, #f0a93b)", bg: "rgba(240,169,59,0.10)", border: "rgba(240,169,59,0.30)", label: "Preparing" },
-  "out-for-delivery": { fg: "var(--accent-amber, #f0a93b)", bg: "rgba(240,169,59,0.10)", border: "rgba(240,169,59,0.30)", label: "Out for delivery" },
+  preparing:        { fg: "var(--accent-amber, #f0a93b)", bg: "color-mix(in srgb, var(--color-warning) 10%, transparent)", border: "color-mix(in srgb, var(--color-warning) 30%, transparent)", label: "Preparing" },
+  "out-for-delivery": { fg: "var(--accent-amber, #f0a93b)", bg: "color-mix(in srgb, var(--color-warning) 10%, transparent)", border: "color-mix(in srgb, var(--color-warning) 30%, transparent)", label: "Out for delivery" },
   new:              { fg: "var(--accent-blue, #5aa8ff)", bg: "rgba(90,168,255,0.10)", border: "rgba(90,168,255,0.30)", label: "New" },
-  "pending-approval": { fg: "var(--accent-amber, #f0a93b)", bg: "rgba(240,169,59,0.10)", border: "rgba(240,169,59,0.30)", label: "Pending approval" },
+  "pending-approval": { fg: "var(--accent-amber, #f0a93b)", bg: "color-mix(in srgb, var(--color-warning) 10%, transparent)", border: "color-mix(in srgb, var(--color-warning) 30%, transparent)", label: "Pending approval" },
 };
 
 function statusStyle(status: string) {

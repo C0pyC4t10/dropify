@@ -4,15 +4,40 @@
   }
 }
 
+/* ────────────────────────────────────────────────────────────────────────
+ * Dropify color system
+ * ────────────────────────────────────────────────────────────────────────
+ * Three layers, in order of specificity (last wins):
+ *   1. Brand palette  — the literal hex values that define the look.
+ *                         Themes (dark / light) override these.
+ *   2. Semantic layer — `--color-success`, `--color-danger`, etc.
+ *                         These are the tokens components should use.
+ *                         They default to brand-palette values but can
+ *                         be overridden per page or per tenant.
+ *   3. Per-tenant brand override — :root[data-company] rewrites the
+ *                         brand palette so every tenant keeps its own
+ *                         identity without the operator touching CSS.
+ *
+ * Components SHOULD consume the semantic layer (`--color-success`),
+ * NOT the brand palette directly (`--accent-green`). That way the
+ * per-tenant brand override and future semantic tweaks (e.g. swapping
+ * "danger = red" for "danger = brand red") only need to touch one place.
+ * ──────────────────────────────────────────────────────────────────────── */
+
 /* Per-tenant accent color override. Set by <ActiveCompanyProvider> when
- * the active company has an accentColor configured. Wins over the
- * dark/light theme defaults so each tenant keeps its brand identity
- * regardless of the operator's theme preference. The [data-company]
- * selector adds specificity (same level as [data-theme]) so the override
- * is resolved after the theme defaults; CSS variable fallbacks still let
- * the rule safely no-op when no override has been set. */
+ * the active company has an accentColor configured. The override is then
+ * wired through ALL semantic tokens so every visible element repaints,
+ * not just the ones using var(--accent-green) directly. */
 :root[data-company] {
-  --accent-green: var(--accent-green-override, var(--accent-green));
+  --accent-green-override-resolved: var(--accent-green-override, var(--accent-green));
+  --accent-red-override-resolved:   var(--accent-red-override,   var(--accent-red));
+  --accent-amber-override-resolved: var(--accent-amber-override, var(--accent-amber));
+  --accent-blue-override-resolved:  var(--accent-blue-override,  var(--accent-blue));
+  --color-brand:                    var(--accent-green-override-resolved);
+  --color-success:                  var(--accent-green-override-resolved);
+  --color-warning:                  var(--accent-amber-override-resolved);
+  --color-danger:                   var(--accent-red-override-resolved);
+  --color-info:                     var(--accent-blue-override-resolved);
 }
 @import "tailwindcss";
 
@@ -50,6 +75,66 @@
   --accent-amber: #c9871f;
   --accent-blue: #1d6fe0;
   --accent-cream: #f4ebdd;
+}
+
+/* ── Semantic layer ─────────────────────────────────────────────────────
+ * Components read these, not the brand palette directly. The per-tenant
+ * override above rewires them when accentColor is set, so the entire
+ * site flips to the new brand without touching individual elements. */
+:root {
+  --color-brand:               var(--accent-green);   /* primary call-to-action */
+  --color-success:             var(--accent-green);   /* OK / paid / delivered */
+  --color-warning:             var(--accent-amber);   /* pending / low-stock */
+  --color-danger:              var(--accent-red);     /* errors / cancelled */
+  --color-info:                var(--accent-blue);    /* informational links */
+  --color-cream:               var(--accent-cream);   /* warm accent for chips */
+  --color-purple:              #a78bfa;              /* returned-order accent */
+
+  --color-text:                var(--text-primary);
+  --color-text-secondary:      var(--text-secondary);
+  --color-text-muted:          var(--text-muted);
+
+  --color-bg:                  var(--bg-primary);
+  --color-bg-elevated:         var(--bg-card);
+  --color-bg-hover:            var(--bg-hover);
+  --color-border:              var(--border);
+
+  /* Tinted backgrounds — combine with the matching semantic token via
+   * `color-mix` so themes automatically pick up the right hue. */
+  --tint-success-12: color-mix(in srgb, var(--color-success) 12%, transparent);
+  --tint-success-18: color-mix(in srgb, var(--color-success) 18%, transparent);
+  --tint-success-25: color-mix(in srgb, var(--color-success) 25%, transparent);
+  --tint-warning-12: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  --tint-warning-18: color-mix(in srgb, var(--color-warning) 18%, transparent);
+  --tint-danger-12:  color-mix(in srgb, var(--color-danger)  12%, transparent);
+  --tint-danger-18:  color-mix(in srgb, var(--color-danger)  18%, transparent);
+  --tint-danger-25:  color-mix(in srgb, var(--color-danger)  25%, transparent);
+  --tint-info-12:    color-mix(in srgb, var(--color-info)    12%, transparent);
+  --tint-brand-12:   color-mix(in srgb, var(--color-brand)   12%, transparent);
+  --tint-brand-18:   color-mix(in srgb, var(--color-brand)   18%, transparent);
+  --tint-brand-25:   color-mix(in srgb, var(--color-brand)   25%, transparent);
+
+  /* Status pill backgrounds — derive from semantic tints. */
+  --status-paid-bg:        var(--tint-success-12);
+  --status-paid-fg:        var(--color-success);
+  --status-pending-bg:     var(--tint-warning-18);
+  --status-pending-fg:     var(--color-warning);
+  --status-cancelled-bg:   var(--tint-danger-18);
+  --status-cancelled-fg:   var(--color-danger);
+  --status-low-bg:         var(--tint-danger-18);
+  --status-low-fg:         var(--color-danger);
+  --status-active-bg:      var(--tint-success-12);
+  --status-active-fg:      var(--color-success);
+  --status-inactive-bg:    var(--bg-secondary);
+  --status-inactive-fg:    var(--text-muted);
+
+  /* Approval-state purple — distinct from brand, used for pending WP
+   * approvals and returned orders so operators can spot them at a glance. */
+  --color-approval:        #8b5cf6;
+  --tint-approval-12:      color-mix(in srgb, var(--color-approval) 12%, transparent);
+  --tint-approval-18:      color-mix(in srgb, var(--color-approval) 18%, transparent);
+  --tint-approval-30:      color-mix(in srgb, var(--color-approval) 30%, transparent);
+  --tint-approval-40:      color-mix(in srgb, var(--color-approval) 40%, transparent);
 }
 
 /* Permanent header & footer — frosted glass adapts to theme */
@@ -128,7 +213,7 @@ body {
 }
 
 .btn-primary {
-  background: var(--accent-green);
+  background: var(--color-brand);
   color: #fff;
 }
 .btn-primary:hover {
@@ -136,30 +221,30 @@ body {
 }
 
 .btn-secondary {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
 }
 .btn-secondary:hover {
-  background: var(--border);
+  background: var(--color-border);
 }
 
 .btn-danger {
-  background: rgba(226, 59, 46, 0.15);
-  color: var(--accent-red);
-  border: 1px solid rgba(226, 59, 46, 0.3);
+  background: var(--tint-danger-15);
+  color: var(--color-danger);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
 }
 .btn-danger:hover {
-  background: rgba(226, 59, 46, 0.25);
+  background: var(--tint-danger-25);
 }
 
 .btn-amber {
-  background: rgba(232, 163, 61, 0.15);
-  color: var(--accent-amber);
-  border: 1px solid rgba(232, 163, 61, 0.3);
+  background: var(--tint-warning-15);
+  color: var(--color-warning);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
 }
 .btn-amber:hover {
-  background: rgba(232, 163, 61, 0.25);
+  background: var(--tint-warning-25);
 }
 
 /* Inputs */

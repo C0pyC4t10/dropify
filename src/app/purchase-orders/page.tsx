@@ -96,9 +96,9 @@ export default function PurchaseOrdersPage() {
             className="btn"
             style={{
               fontSize: 12,
-              background: filter === f ? "rgba(232,163,61,0.18)" : "var(--bg-card)",
+              background: filter === f ? "var(--tint-warning-18)" : "var(--bg-card)",
               color: filter === f ? "var(--accent-amber)" : "var(--text-secondary)",
-              border: `1px solid ${filter === f ? "rgba(232,163,61,0.4)" : "var(--border)"}`,
+              border: `1px solid ${filter === f ? "color-mix(in srgb, var(--color-warning) 40%, transparent)" : "var(--border)"}`,
             }}
           >
             {f === "all" ? "All" : STATUS_LABELS[f]}

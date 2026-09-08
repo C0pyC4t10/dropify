@@ -82,7 +82,7 @@ export function ExportMenu<T>({
             onClick={doXLSX}
             style={menuItemStyle}
           >
-            <FileSpreadsheet size={14} color="#16a34a" />
+            <FileSpreadsheet size={14} color="var(--color-success)" />
             <span>Excel (.xlsx)</span>
           </button>
           <button
@@ -90,7 +90,7 @@ export function ExportMenu<T>({
             onClick={doPDF}
             style={menuItemStyle}
           >
-            <FileText size={14} color="#dc2626" />
+            <FileText size={14} color="var(--color-danger)" />
             <span>PDF (.pdf)</span>
           </button>
         </div>

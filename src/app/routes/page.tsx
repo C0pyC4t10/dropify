@@ -64,10 +64,10 @@ interface QuickLocateResult {
 }
 
 const DIRECTION_COLOR: Record<"NW" | "NE" | "SW" | "SE", string> = {
-  NW: "#3b82f6",
-  NE: "#16a34a",
+  NW: "var(--color-info)",
+  NE: "var(--color-success)",
   SW: "#ef4444",
-  SE: "#f59e0b",
+  SE: "var(--color-warning)",
 };
 
 const DIRECTION_LABEL: Record<"NW" | "NE" | "SW" | "SE", string> = {
@@ -254,9 +254,9 @@ export default function RoutesLandingPage() {
                 textTransform: "uppercase",
                 padding: "2px 8px",
                 borderRadius: 999,
-                background: "rgba(77,158,71,0.15)",
+                background: "color-mix(in srgb, var(--color-brand) 15%, transparent)",
                 color: "var(--accent-green)",
-                border: "1px solid rgba(77,158,71,0.4)",
+                border: "1px solid color-mix(in srgb, var(--color-brand) 40%, transparent)",
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 4,
@@ -323,7 +323,7 @@ export default function RoutesLandingPage() {
             style={{
               padding: "6px 10px",
               borderRadius: 6,
-              background: "rgba(220,38,38,0.10)",
+              background: "var(--tint-danger-12)",
               color: "var(--accent-red)",
               fontSize: 12,
               marginBottom: 8,
@@ -365,7 +365,7 @@ export default function RoutesLandingPage() {
                       <span
                         style={{
                           fontSize: 9,
-                          background: "rgba(77,158,71,0.20)",
+                          background: "color-mix(in srgb, var(--color-brand) 20%, transparent)",
                           color: "var(--accent-green)",
                           padding: "1px 4px",
                           borderRadius: 3,

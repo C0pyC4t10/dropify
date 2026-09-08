@@ -335,7 +335,7 @@ function OrderDetailInner() {
             </p>
           )}
           {order.status === "returned" && (
-            <p style={{ fontSize: 12, color: "#a78bfa", margin: "12px 0 0" }}>
+            <p style={{ fontSize: 12, color: "var(--color-purple)", margin: "12px 0 0" }}>
               Order was returned after delivery. Stock has been restored.
               {order.returnReason && (
                 <>
@@ -360,9 +360,9 @@ function OrderDetailInner() {
               style={{
                 flex: 1,
                 fontSize: 12,
-                background: order.deliveryMode === "own" ? "rgba(77,158,71,0.18)" : "var(--bg-primary)",
+                background: order.deliveryMode === "own" ? "var(--tint-brand-18)" : "var(--bg-primary)",
                 color: order.deliveryMode === "own" ? "var(--accent-green)" : "var(--text-secondary)",
-                border: `1px solid ${order.deliveryMode === "own" ? "rgba(77,158,71,0.4)" : "var(--border)"}`,
+                border: `1px solid ${order.deliveryMode === "own" ? "color-mix(in srgb, var(--color-brand) 40%, transparent)" : "var(--border)"}`,
               }}
             >
               Own Rider
@@ -374,9 +374,9 @@ function OrderDetailInner() {
               style={{
                 flex: 1,
                 fontSize: 12,
-                background: order.deliveryMode === "pathao" ? "rgba(232,163,61,0.18)" : "var(--bg-primary)",
+                background: order.deliveryMode === "pathao" ? "var(--tint-warning-18)" : "var(--bg-primary)",
                 color: order.deliveryMode === "pathao" ? "var(--accent-amber)" : "var(--text-secondary)",
-                border: `1px solid ${order.deliveryMode === "pathao" ? "rgba(232,163,61,0.4)" : "var(--border)"}`,
+                border: `1px solid ${order.deliveryMode === "pathao" ? "color-mix(in srgb, var(--color-warning) 40%, transparent)" : "var(--border)"}`,
               }}
             >
               Hired Pathao

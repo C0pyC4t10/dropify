@@ -177,7 +177,7 @@ export async function bkashQrDataUrl(opts: BkashQrOptions = {}): Promise<string>
     errorCorrectionLevel: ecl,
     margin,
     width: size,
-    color: { dark: opts.dark ?? "#000000", light: opts.light ?? "#ffffff" },
+    color: { dark: opts.dark ?? "#000000", light: opts.light ?? "var(--bg-secondary)" },
   });
 }
 

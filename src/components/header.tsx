@@ -287,7 +287,7 @@ export function Header({ className = "" }: { className?: string }) {
                           padding: "8px 10px",
                           border: "none",
                           background:
-                            c.id === activeCompany?.id ? "rgba(77,158,71,0.18)" : "transparent",
+                            c.id === activeCompany?.id ? "var(--tint-brand-18)" : "transparent",
                           color: "var(--text-primary)",
                           fontSize: 13,
                           borderRadius: 6,
@@ -373,7 +373,7 @@ export function Header({ className = "" }: { className?: string }) {
                   fontWeight: active ? 600 : 500,
                   padding: "6px 10px",
                   borderRadius: 6,
-                  background: active ? "rgba(77, 158, 71, 0.12)" : "transparent",
+                  background: active ? "var(--tint-brand-12)" : "transparent",
                   transition: "all 0.15s",
                 }}
               >

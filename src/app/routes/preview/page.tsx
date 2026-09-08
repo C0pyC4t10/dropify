@@ -50,10 +50,10 @@ const DIRECTION_LABEL: Record<"NW" | "NE" | "SW" | "SE", string> = {
 
 const DIRECTION_COLOR: Record<"NW" | "NE" | "SW" | "SE", string> = {
   // Cool colors for north, warm for south; West/East shaded via saturation.
-  NW: "#3b82f6", // blue
-  NE: "#16a34a", // green
+  NW: "var(--color-info)", // blue
+  NE: "var(--color-success)", // green
   SW: "#ef4444", // red
-  SE: "#f59e0b", // amber
+  SE: "var(--color-warning)", // amber
 };
 
 function distanceLabel(m: number): string {
@@ -158,9 +158,9 @@ function RoutePreviewContent() {
               textTransform: "uppercase",
               padding: "2px 8px",
               borderRadius: 999,
-              background: "rgba(77,158,71,0.15)",
+              background: "color-mix(in srgb, var(--color-brand) 15%, transparent)",
               color: "var(--accent-green)",
-              border: "1px solid rgba(77,158,71,0.4)",
+              border: "1px solid color-mix(in srgb, var(--color-brand) 40%, transparent)",
             }}
           >
             Dhaka Metro
@@ -345,13 +345,13 @@ function RoutePreviewContent() {
           />
           <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 11, color: "var(--text-muted)", flexWrap: "wrap" }}>
             <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ width: 10, height: 10, borderRadius: 5, background: "#3b82f6" }} /> NW
+              <span style={{ width: 10, height: 10, borderRadius: 5, background: "var(--color-info)" }} /> NW
             </span>
             <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ width: 10, height: 10, borderRadius: 5, background: "#16a34a" }} /> NE
+              <span style={{ width: 10, height: 10, borderRadius: 5, background: "var(--color-success)" }} /> NE
             </span>
             <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ width: 10, height: 10, borderRadius: 5, background: "#f59e0b" }} /> SE
+              <span style={{ width: 10, height: 10, borderRadius: 5, background: "var(--color-warning)" }} /> SE
             </span>
             <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <span style={{ width: 10, height: 10, borderRadius: 5, background: "#ef4444" }} /> SW

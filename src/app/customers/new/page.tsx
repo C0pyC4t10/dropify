@@ -200,8 +200,8 @@ export default function NewCustomerPage() {
           style={{
             padding: "10px 14px",
             borderRadius: 8,
-            background: "rgba(226, 59, 46, 0.10)",
-            border: "1px solid rgba(226, 59, 46, 0.35)",
+            background: "var(--tint-danger-12)",
+            border: "1px solid color-mix(in srgb, var(--color-danger) 35%, transparent)",
             color: "var(--accent-red)",
             fontSize: 13,
             marginBottom: 16,

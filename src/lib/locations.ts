@@ -86,7 +86,7 @@ export const CLUSTER_META: Record<Cluster, {
   "DHK-E": {
     name: "East & Northeast",
     code: "DHK-E",
-    color: "#22c55e",
+    color: "var(--color-success)",
     direction: "Aftabnagar → Rampura → Badda → Gulshan → Banani → Bashundhara → Uttara",
     description: "The eastern and northeastern corridor of Dhaka. The hub is on the western edge of this cluster.",
     subClusters: ["E1", "E2", "E3", "E4", "E5", "E6"],

@@ -1119,9 +1119,9 @@ const codeStyle: React.CSSProperties = {
   fontSize: 10,
   padding: "1px 6px",
   borderRadius: 3,
-  background: "rgba(22, 163, 74, 0.10)",
+  background: "var(--tint-brand-12)",
   color: "#15803d",
-  border: "1px solid rgba(22, 163, 74, 0.25)",
+  border: "1px solid var(--tint-brand-25)",
 };
 
 /** Format YYYY-MM-DD → "05 September 2026". */

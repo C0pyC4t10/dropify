@@ -81,7 +81,7 @@ export default function SuppliersPage() {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    background: "rgba(232,163,61,0.15)",
+                    background: "var(--tint-warning-18)",
                     color: "var(--accent-amber)",
                   }}
                 >
@@ -228,7 +228,7 @@ function SupplierModal({
                       padding: "4px 10px",
                       borderRadius: 999,
                       border: `1px solid ${active ? "var(--accent-green)" : "var(--border)"}`,
-                      background: active ? "rgba(77, 158, 71, 0.18)" : "transparent",
+                      background: active ? "var(--tint-brand-18)" : "transparent",
                       color: active ? "var(--accent-green)" : "var(--text-secondary)",
                       cursor: "pointer",
                       fontFamily: "inherit",

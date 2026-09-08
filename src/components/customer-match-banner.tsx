@@ -133,9 +133,9 @@ export default function CustomerMatchBanner({ phone, onUse, compact }: Props) {
                 fontSize: 11,
                 padding: "1px 6px",
                 borderRadius: 999,
-                background: "rgba(77,158,71,0.10)",
+                background: "color-mix(in srgb, var(--color-brand) 10%, transparent)",
                 color: "var(--accent-green)",
-                border: "1px solid rgba(77,158,71,0.30)",
+                border: "1px solid color-mix(in srgb, var(--color-brand) 30%, transparent)",
                 fontWeight: 600,
               }}
             >
@@ -200,24 +200,24 @@ export default function CustomerMatchBanner({ phone, onUse, compact }: Props) {
             label="Received"
             value={s.delivered}
             color="var(--accent-green)"
-            bg="rgba(77,158,71,0.10)"
-            border="rgba(77,158,71,0.30)"
+            bg="color-mix(in srgb, var(--color-brand) 10%, transparent)"
+            border="color-mix(in srgb, var(--color-brand) 30%, transparent)"
           />
           <StatChip
             icon={<XCircle size={11} />}
             label="Cancelled"
             value={s.cancelled}
             color="var(--accent-red)"
-            bg="rgba(226,59,46,0.10)"
-            border="rgba(226,59,46,0.30)"
+            bg="var(--tint-danger-12)"
+            border="color-mix(in srgb, var(--color-danger) 30%, transparent)"
           />
           <StatChip
             icon={<Clock size={11} />}
             label="In progress"
             value={s.inProgress}
             color="var(--accent-amber, #f0a93b)"
-            bg="rgba(240,169,59,0.10)"
-            border="rgba(240,169,59,0.30)"
+            bg="color-mix(in srgb, var(--color-warning) 10%, transparent)"
+            border="color-mix(in srgb, var(--color-warning) 30%, transparent)"
           />
         </div>
 
@@ -230,7 +230,7 @@ export default function CustomerMatchBanner({ phone, onUse, compact }: Props) {
               gap: 10,
               marginTop: 10,
               paddingTop: 10,
-              borderTop: "1px dashed rgba(77,158,71,0.30)",
+              borderTop: "1px dashed color-mix(in srgb, var(--color-brand) 30%, transparent)",
               flexWrap: "wrap",
             }}
           >
@@ -284,8 +284,8 @@ function shellStyle(compact: boolean | undefined, kind: "match" | "new" | "loadi
     return {
       padding,
       borderRadius: 8,
-      border: "1px solid rgba(77,158,71,0.35)",
-      background: "rgba(77,158,71,0.06)",
+      border: "1px solid color-mix(in srgb, var(--color-brand) 35%, transparent)",
+      background: "color-mix(in srgb, var(--color-brand) 6%, transparent)",
       marginTop: 6,
     };
   }

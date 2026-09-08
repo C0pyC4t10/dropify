@@ -202,7 +202,7 @@ export default function CustomersPage() {
                   key={c.id}
                   style={{
                     cursor: "pointer",
-                    background: selectedIds.has(c.id) ? "rgba(77,158,71,0.08)" : undefined,
+                    background: selectedIds.has(c.id) ? "color-mix(in srgb, var(--color-brand) 8%, transparent)" : undefined,
                   }}
                   onClick={() => (window.location.href = `/customers/${c.id}`)}
                 >

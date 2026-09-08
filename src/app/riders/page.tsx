@@ -373,7 +373,7 @@ export default function RidersPage() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                background: "rgba(232,163,61,0.18)",
+                background: "var(--tint-warning-18)",
                 color: "var(--accent-amber)",
               }}
             >
@@ -388,7 +388,7 @@ export default function RidersPage() {
           </div>
           <span
             className="status-badge status-confirmed"
-            style={{ background: "rgba(232,163,61,0.18)", color: "var(--accent-amber)", border: "1px solid rgba(232,163,61,0.4)" }}
+            style={{ background: "var(--tint-warning-18)", color: "var(--accent-amber)", border: "1px solid color-mix(in srgb, var(--color-warning) 40%, transparent)" }}
           >
             External
           </span>

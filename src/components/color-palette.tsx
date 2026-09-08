@@ -15,16 +15,16 @@ export const DROPIFY_ACCENT_PRESETS: Array<{
   /** Hint shown under the swatch — keep short, no periods. */
   hint?: string;
 }> = [
-  { name: "Dropify Green",  hex: "#4d9e47", hint: "default" },
-  { name: "Forest",        hex: "#22c55e", hint: "fresh" },
+  { name: "Dropify Green",  hex: "var(--color-brand)", hint: "default" },
+  { name: "Forest",        hex: "var(--color-success)", hint: "fresh" },
   { name: "Teal",          hex: "#14b8a6", hint: "modern" },
-  { name: "Sky",           hex: "#3b82f6", hint: "trust" },
+  { name: "Sky",           hex: "var(--color-info)", hint: "trust" },
   { name: "Indigo",        hex: "#6366f1", hint: "calm" },
   { name: "Purple",        hex: "#9333ea", hint: "luxury" },
   { name: "Pink",          hex: "#ec4899", hint: "fashion" },
-  { name: "Crimson",       hex: "#dc2626", hint: "bold" },
+  { name: "Crimson",       hex: "var(--color-danger)", hint: "bold" },
   { name: "Orange",        hex: "#ea580c", hint: "warm" },
-  { name: "Amber",         hex: "#f59e0b", hint: "energy" },
+  { name: "Amber",         hex: "var(--color-warning)", hint: "energy" },
   { name: "Lime",          hex: "#84cc16", hint: "organic" },
   { name: "Slate",         hex: "#64748b", hint: "neutral" },
 ];

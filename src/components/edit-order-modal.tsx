@@ -231,9 +231,9 @@ export function EditOrderModal({ order, products, customers, onClose, onSaved }:
                 onClick={() => setDeliveryMode("own")}
                 style={{
                   flex: 1,
-                  background: deliveryMode === "own" ? "rgba(77,158,71,0.18)" : "var(--bg-primary)",
+                  background: deliveryMode === "own" ? "var(--tint-brand-18)" : "var(--bg-primary)",
                   color: deliveryMode === "own" ? "var(--accent-green)" : "var(--text-secondary)",
-                  border: `1px solid ${deliveryMode === "own" ? "rgba(77,158,71,0.4)" : "var(--border)"}`,
+                  border: `1px solid ${deliveryMode === "own" ? "color-mix(in srgb, var(--color-brand) 40%, transparent)" : "var(--border)"}`,
                 }}
               >
                 Own Rider
@@ -244,9 +244,9 @@ export function EditOrderModal({ order, products, customers, onClose, onSaved }:
                 onClick={() => setDeliveryMode("pathao")}
                 style={{
                   flex: 1,
-                  background: deliveryMode === "pathao" ? "rgba(232,163,61,0.18)" : "var(--bg-primary)",
+                  background: deliveryMode === "pathao" ? "var(--tint-warning-18)" : "var(--bg-primary)",
                   color: deliveryMode === "pathao" ? "var(--accent-amber)" : "var(--text-secondary)",
-                  border: `1px solid ${deliveryMode === "pathao" ? "rgba(232,163,61,0.4)" : "var(--border)"}`,
+                  border: `1px solid ${deliveryMode === "pathao" ? "color-mix(in srgb, var(--color-warning) 40%, transparent)" : "var(--border)"}`,
                 }}
               >
                 Hired Pathao

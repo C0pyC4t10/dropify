@@ -130,7 +130,7 @@ export default function Dashboard() {
                 borderRadius: 20,
                 background:
                   stats.newOrders.length > 0
-                    ? "rgba(232,86,86,0.18)"
+                    ? "color-mix(in srgb, var(--color-danger) 18%, transparent)"
                     : "rgba(96,160,96,0.18)",
                 color:
                   stats.newOrders.length > 0
@@ -138,7 +138,7 @@ export default function Dashboard() {
                     : "var(--accent-green)",
                 border:
                   stats.newOrders.length > 0
-                    ? "1px solid rgba(232,86,86,0.4)"
+                    ? "1px solid color-mix(in srgb, var(--color-danger) 40%, transparent)"
                     : "1px solid rgba(96,160,96,0.4)",
                 minWidth: 36,
                 textAlign: "center",
@@ -247,9 +247,9 @@ export default function Dashboard() {
                   fontSize: 11,
                   padding: "2px 8px",
                   borderRadius: 20,
-                  background: "rgba(232,163,61,0.18)",
+                  background: "var(--tint-warning-18)",
                   color: "var(--accent-amber)",
-                  border: "1px solid rgba(232,163,61,0.4)",
+                  border: "1px solid color-mix(in srgb, var(--color-warning) 40%, transparent)",
                   fontWeight: 600,
                 }}
               >
@@ -277,7 +277,7 @@ export default function Dashboard() {
               {stats.openOrders.map((o) => {
                 const isOld = o.date !== new Date().toISOString().slice(0, 10);
                 return (
-                <tr key={o.id} style={{ background: isOld ? "rgba(232,163,61,0.06)" : undefined }}>
+                <tr key={o.id} style={{ background: isOld ? "color-mix(in srgb, var(--color-warning) 6%, transparent)" : undefined }}>
                   <td>
                     <Link href={`/orders/${o.id}`} style={{ color: "var(--accent-green)", textDecoration: "none", fontWeight: 600 }}>
                       {o.orderNo}

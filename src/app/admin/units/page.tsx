@@ -313,8 +313,8 @@ function UnitForm({
           style={{
             marginTop: 12,
             padding: "6px 10px",
-            background: "rgba(226,59,46,0.12)",
-            border: "1px solid rgba(226,59,46,0.3)",
+            background: "var(--tint-danger-12)",
+            border: "1px solid color-mix(in srgb, var(--color-danger) 30%, transparent)",
             borderRadius: 6,
             color: "var(--accent-red)",
             fontSize: 12,
@@ -336,9 +336,9 @@ function UnitForm({
             className="btn"
             style={{
               marginLeft: "auto",
-              background: "rgba(226,59,46,0.15)",
+              background: "var(--tint-danger-18)",
               color: "var(--accent-red)",
-              border: "1px solid rgba(226,59,46,0.3)",
+              border: "1px solid color-mix(in srgb, var(--color-danger) 30%, transparent)",
             }}
             onClick={remove}
             disabled={deleting}

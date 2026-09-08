@@ -113,8 +113,8 @@ export default function AdminCompaniesPage() {
           style={{
             padding: 40,
             textAlign: "center",
-            background: "rgba(77, 158, 71, 0.04)",
-            borderColor: "rgba(77, 158, 71, 0.2)",
+            background: "color-mix(in srgb, var(--color-brand) 4%, transparent)",
+            borderColor: "color-mix(in srgb, var(--color-brand) 20%, transparent)",
           }}
         >
           <Sparkles size={28} color="var(--accent-green)" />
@@ -431,7 +431,7 @@ function CompanyForm({
                       borderRadius: 8,
                       border: `1px solid ${active ? "var(--accent-green)" : "var(--border)"}`,
                       background: active
-                        ? "rgba(77, 158, 71, 0.16)"
+                        ? "color-mix(in srgb, var(--color-brand) 16%, transparent)"
                         : "var(--bg-primary)",
                       color: "var(--text-primary)",
                       cursor: "pointer",
@@ -482,8 +482,8 @@ function CompanyForm({
           style={{
             marginTop: 12,
             padding: "6px 10px",
-            background: "rgba(226,59,46,0.12)",
-            border: "1px solid rgba(226,59,46,0.3)",
+            background: "var(--tint-danger-12)",
+            border: "1px solid color-mix(in srgb, var(--color-danger) 30%, transparent)",
             borderRadius: 6,
             color: "var(--accent-red)",
             fontSize: 12,
@@ -515,9 +515,9 @@ function CompanyForm({
             className="btn"
             style={{
               marginLeft: "auto",
-              background: "rgba(226,59,46,0.15)",
+              background: "var(--tint-danger-18)",
               color: "var(--accent-red)",
-              border: "1px solid rgba(226,59,46,0.3)",
+              border: "1px solid color-mix(in srgb, var(--color-danger) 30%, transparent)",
             }}
             onClick={remove}
             disabled={deleting || company?.slug === "meat"}

@@ -188,12 +188,12 @@ export const SOURCE_LABELS: Record<string, string> = {
 };
 
 export const SOURCE_COLORS: Record<string, string> = {
-  manual: "#9aa89a",
-  facebook: "#3b82f6",
+  manual: "var(--text-secondary)",
+  facebook: "var(--color-info)",
   wordpress: "#21759b",
-  whatsapp: "#22c55e",
-  walkin: "#e8a33d",
-  phone: "#a78bfa",
+  whatsapp: "var(--color-success)",
+  walkin: "var(--color-warning)",
+  phone: "var(--color-purple)",
 };
 
 export const EXPENSE_CATEGORIES = [
@@ -221,15 +221,15 @@ export const EXPENSE_CATEGORY_LABELS: Record<string, string> = {
 };
 
 export const EXPENSE_CATEGORY_COLORS: Record<string, string> = {
-  utilities: "#e8a33d",
-  salary: "#a78bfa",
+  utilities: "var(--color-warning)",
+  salary: "var(--color-purple)",
   rent: "#21759b",
-  fuel: "#3b82f6",
-  packaging: "#22c55e",
-  marketing: "#e23b2e",
-  maintenance: "#9aa89a",
-  office: "#8a948e",
-  other: "#5f6e62",
+  fuel: "var(--color-info)",
+  packaging: "var(--color-success)",
+  marketing: "var(--color-danger)",
+  maintenance: "var(--text-secondary)",
+  office: "var(--text-muted)",
+  other: "var(--text-muted)",
 };
 
 export const EXPENSE_PAYMENT_METHOD_LABELS: Record<string, string> = {

@@ -299,8 +299,8 @@ function SeedTemplates({
       style={{
         padding: 16,
         marginBottom: 16,
-        background: "rgba(77, 158, 71, 0.06)",
-        borderColor: "rgba(77, 158, 71, 0.25)",
+        background: "color-mix(in srgb, var(--color-brand) 6%, transparent)",
+        borderColor: "var(--tint-brand-25)",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -474,8 +474,8 @@ function CategoryForm({
           style={{
             marginTop: 12,
             padding: "6px 10px",
-            background: "rgba(226,59,46,0.12)",
-            border: "1px solid rgba(226,59,46,0.3)",
+            background: "var(--tint-danger-12)",
+            border: "1px solid color-mix(in srgb, var(--color-danger) 30%, transparent)",
             borderRadius: 6,
             color: "var(--accent-red)",
             fontSize: 12,
@@ -497,9 +497,9 @@ function CategoryForm({
             className="btn"
             style={{
               marginLeft: "auto",
-              background: "rgba(226,59,46,0.15)",
+              background: "var(--tint-danger-18)",
               color: "var(--accent-red)",
-              border: "1px solid rgba(226,59,46,0.3)",
+              border: "1px solid color-mix(in srgb, var(--color-danger) 30%, transparent)",
             }}
             onClick={remove}
             disabled={deleting}

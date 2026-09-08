@@ -184,9 +184,9 @@ export default function RiderDetailPage() {
       style={{
         fontSize: 12,
         padding: "6px 12px",
-        background: active ? "rgba(77, 158, 71, 0.18)" : "var(--bg-card)",
+        background: active ? "var(--tint-brand-18)" : "var(--bg-card)",
         color: active ? "var(--accent-green)" : "var(--text-secondary)",
-        border: `1px solid ${active ? "rgba(77,158,71,0.4)" : "var(--border)"}`,
+        border: `1px solid ${active ? "color-mix(in srgb, var(--color-brand) 40%, transparent)" : "var(--border)"}`,
       }}
     >
       {label}
@@ -237,9 +237,9 @@ export default function RiderDetailPage() {
               style={{
                 fontSize: 11,
                 padding: "2px 10px",
-                background: rider.status === "active" ? "rgba(77,158,71,0.18)" : "rgba(159,159,159,0.18)",
+                background: rider.status === "active" ? "var(--tint-brand-18)" : "color-mix(in srgb, var(--color-text-secondary) 18%, transparent)",
                 color: rider.status === "active" ? "var(--accent-green)" : "var(--text-muted)",
-                border: `1px solid ${rider.status === "active" ? "rgba(77,158,71,0.4)" : "var(--border)"}`,
+                border: `1px solid ${rider.status === "active" ? "color-mix(in srgb, var(--color-brand) 40%, transparent)" : "var(--border)"}`,
                 textTransform: "uppercase",
                 letterSpacing: 0.5,
               }}

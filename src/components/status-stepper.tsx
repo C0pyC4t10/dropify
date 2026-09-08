@@ -43,9 +43,9 @@ export function StatusStepper({ status, onChange, onRequestCancel, onRequestRetu
             className="btn"
             style={{
               background: done
-                ? "rgba(77, 158, 71, 0.18)"
+                ? "var(--tint-brand-18)"
                 : current
-                ? "rgba(232, 163, 61, 0.18)"
+                ? "var(--tint-warning-18)"
                 : "var(--bg-primary)",
               color: done
                 ? "var(--accent-green)"
@@ -54,9 +54,9 @@ export function StatusStepper({ status, onChange, onRequestCancel, onRequestRetu
                 : "var(--text-muted)",
               border: `1px solid ${
                 done
-                  ? "rgba(77, 158, 71, 0.4)"
+                  ? "color-mix(in srgb, var(--color-brand) 40%, transparent)"
                   : current
-                  ? "rgba(232, 163, 61, 0.4)"
+                  ? "color-mix(in srgb, var(--color-warning) 40%, transparent)"
                   : "var(--border)"
               }`,
               fontSize: 12,
@@ -115,9 +115,9 @@ export function StatusStepper({ status, onChange, onRequestCancel, onRequestRetu
           style={{
             fontSize: 12,
             marginLeft: 4,
-            background: "rgba(139, 92, 246, 0.18)",
-            color: "#a78bfa",
-            border: "1px solid rgba(139, 92, 246, 0.4)",
+            background: "var(--tint-approval-18)",
+            color: "var(--color-purple)",
+            border: "1px solid var(--tint-approval-40)",
             display: "flex",
             alignItems: "center",
             gap: 4,

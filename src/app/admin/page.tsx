@@ -15,6 +15,7 @@ import {
   TrendingUp,
   Activity,
   Plus,
+  BookOpen,
 } from "lucide-react";
 
 interface CompanyRow {
@@ -130,6 +131,13 @@ export default function AdminConsolePage() {
         <NavTile href="/admin/companies" icon={<Building2 size={18} />} label="Companies" count={t.companies} />
         <NavTile href="/admin/categories" icon={<Tag size={18} />} label="Categories" count={t.categories} />
         <NavTile href="/admin/units" icon={<Ruler size={18} />} label="Units" count={t.units} />
+        <NavTile
+          href="/admin/design-system"
+          icon={<BookOpen size={18} />}
+          label="Design system"
+          count={0}
+          hideCount
+        />
       </div>
 
       {/* System stats */}
@@ -239,11 +247,13 @@ function NavTile({
   icon,
   label,
   count,
+  hideCount,
 }: {
   href: string;
   icon: React.ReactNode;
   label: string;
   count: number;
+  hideCount?: boolean;
 }) {
   return (
     <Link
@@ -264,8 +274,8 @@ function NavTile({
           width: 36,
           height: 36,
           borderRadius: 8,
-          background: "rgba(77, 158, 71, 0.18)",
-          color: "var(--accent-green)",
+          background: "var(--tint-brand-18)",
+          color: "var(--color-brand)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -275,7 +285,9 @@ function NavTile({
       </div>
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{label}</div>
-        <div style={{ fontSize: 18, fontWeight: 700 }}>{count}</div>
+        {!hideCount && (
+          <div style={{ fontSize: 18, fontWeight: 700 }}>{count}</div>
+        )}
       </div>
     </Link>
   );

@@ -74,7 +74,7 @@ function getNumberedIcon(seq: number | string, color: string): L.DivIcon {
   const key = `${seq}::${color}`;
   const cached = numberedIconCache.get(key);
   if (cached) return cached;
-  const ringColor = color === "#16a34a" ? "rgba(22,163,74,0.25)" : "rgba(0,0,0,0.18)";
+  const ringColor = color === "var(--color-success)" ? "var(--tint-brand-25)" : "rgba(0,0,0,0.18)";
   const icon = L.divIcon({
     className: "rt-pin",
     html: buildNumberedHtml(seq, color, ringColor),
@@ -154,7 +154,7 @@ function RouteMap({
   shopLabel = "Shop",
   stops,
   drawRoute = true,
-  routeColor = "#16a34a",
+  routeColor = "var(--color-success)",
   height = 480,
   fitBounds = true,
   onShopMove,

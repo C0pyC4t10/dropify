@@ -54,7 +54,7 @@ export function ReturnOrderModal({ open, orderNo, onClose, onConfirm }: Props) {
       <div className="modal-content" style={{ maxWidth: 480 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Undo2 size={18} color="#a78bfa" />
+            <Undo2 size={18} color="var(--color-purple)" />
             <h2 id="return-modal-title" style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
               Mark {orderNo} returned?
             </h2>
@@ -96,11 +96,11 @@ export function ReturnOrderModal({ open, orderNo, onClose, onConfirm }: Props) {
                 fontSize: 12,
                 padding: "8px 10px",
                 background:
-                  selected === r.key ? "rgba(139, 92, 246, 0.15)" : "var(--bg-primary)",
+                  selected === r.key ? "var(--tint-approval-15)" : "var(--bg-primary)",
                 color:
-                  selected === r.key ? "#a78bfa" : "var(--text-primary)",
+                  selected === r.key ? "var(--color-purple)" : "var(--text-primary)",
                 border: `1px solid ${
-                  selected === r.key ? "rgba(139,92,246,0.4)" : "var(--border)"
+                  selected === r.key ? "var(--tint-approval-40)" : "var(--border)"
                 }`,
                 cursor: busy ? "not-allowed" : "pointer",
               }}
@@ -141,7 +141,7 @@ export function ReturnOrderModal({ open, orderNo, onClose, onConfirm }: Props) {
             disabled={busy || !finalReason}
             className="btn"
             style={{
-              background: "#a78bfa",
+              background: "var(--color-purple)",
               color: "#1a0f3d",
               border: "1px solid #a78bfa",
             }}

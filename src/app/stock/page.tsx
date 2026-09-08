@@ -99,12 +99,12 @@ export default function StockPage() {
             borderRadius: 8,
             background:
               banner.kind === "ok"
-                ? "rgba(77,158,71,0.10)"
-                : "rgba(226,59,46,0.10)",
+                ? "color-mix(in srgb, var(--color-brand) 10%, transparent)"
+                : "var(--tint-danger-12)",
             border:
               banner.kind === "ok"
-                ? "1px solid rgba(77,158,71,0.35)"
-                : "1px solid rgba(226,59,46,0.35)",
+                ? "1px solid color-mix(in srgb, var(--color-brand) 35%, transparent)"
+                : "1px solid color-mix(in srgb, var(--color-danger) 35%, transparent)",
             color: banner.kind === "ok" ? "var(--accent-green)" : "var(--accent-red)",
             fontSize: 13,
             marginBottom: 14,
@@ -152,9 +152,9 @@ export default function StockPage() {
             className="btn"
             style={{
               fontSize: 12,
-              background: filter === 0 ? "rgba(77, 158, 71, 0.18)" : "var(--bg-card)",
+              background: filter === 0 ? "var(--tint-brand-18)" : "var(--bg-card)",
               color: filter === 0 ? "var(--accent-green)" : "var(--text-secondary)",
-              border: `1px solid ${filter === 0 ? "rgba(77,158,71,0.4)" : "var(--border)"}`,
+              border: `1px solid ${filter === 0 ? "color-mix(in srgb, var(--color-brand) 40%, transparent)" : "var(--border)"}`,
             }}
           >
             All
@@ -166,9 +166,9 @@ export default function StockPage() {
               className="btn"
               style={{
                 fontSize: 12,
-                background: filter === c.id ? "rgba(77, 158, 71, 0.18)" : "var(--bg-card)",
+                background: filter === c.id ? "var(--tint-brand-18)" : "var(--bg-card)",
                 color: filter === c.id ? "var(--accent-green)" : "var(--text-secondary)",
-                border: `1px solid ${filter === c.id ? "rgba(77,158,71,0.4)" : "var(--border)"}`,
+                border: `1px solid ${filter === c.id ? "color-mix(in srgb, var(--color-brand) 40%, transparent)" : "var(--border)"}`,
               }}
             >
               {c.name}
@@ -217,9 +217,9 @@ export default function StockPage() {
                           fontSize: 11,
                           padding: "2px 8px",
                           borderRadius: 20,
-                          background: "rgba(77,158,71,0.1)",
+                          background: "color-mix(in srgb, var(--color-brand) 10%, transparent)",
                           color: "var(--accent-green)",
-                          border: "1px solid rgba(77,158,71,0.3)",
+                          border: "1px solid color-mix(in srgb, var(--color-brand) 30%, transparent)",
                         }}
                       >
                         {p.categoryName}
@@ -325,9 +325,9 @@ function AdjustStockModal({ product, onClose, onSaved }: { product: Product; onC
             onClick={() => setType("purchase")}
             style={{
               flex: 1,
-              background: type === "purchase" ? "rgba(77,158,71,0.18)" : "var(--bg-primary)",
+              background: type === "purchase" ? "var(--tint-brand-18)" : "var(--bg-primary)",
               color: type === "purchase" ? "var(--accent-green)" : "var(--text-secondary)",
-              border: `1px solid ${type === "purchase" ? "rgba(77,158,71,0.4)" : "var(--border)"}`,
+              border: `1px solid ${type === "purchase" ? "color-mix(in srgb, var(--color-brand) 40%, transparent)" : "var(--border)"}`,
             }}
           >
             <ArrowUpCircle size={15} /> Stock In (purchase)
@@ -337,9 +337,9 @@ function AdjustStockModal({ product, onClose, onSaved }: { product: Product; onC
             onClick={() => setType("wastage")}
             style={{
               flex: 1,
-              background: type === "wastage" ? "rgba(226,59,46,0.15)" : "var(--bg-primary)",
+              background: type === "wastage" ? "var(--tint-danger-18)" : "var(--bg-primary)",
               color: type === "wastage" ? "var(--accent-red)" : "var(--text-secondary)",
-              border: `1px solid ${type === "wastage" ? "rgba(226,59,46,0.4)" : "var(--border)"}`,
+              border: `1px solid ${type === "wastage" ? "color-mix(in srgb, var(--color-danger) 40%, transparent)" : "var(--border)"}`,
             }}
           >
             <ArrowDownCircle size={15} /> Stock Out (wastage)

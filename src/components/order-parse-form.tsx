@@ -194,11 +194,11 @@ export default function OrderParseForm({ products, settings }: Props) {
           style={{
             padding: "10px 14px",
             borderRadius: 8,
-            background: banner.kind === "ok" ? "rgba(77,158,71,0.10)" : "rgba(226,59,46,0.10)",
+            background: banner.kind === "ok" ? "color-mix(in srgb, var(--color-brand) 10%, transparent)" : "var(--tint-danger-12)",
             border:
               banner.kind === "ok"
-                ? "1px solid rgba(77,158,71,0.35)"
-                : "1px solid rgba(226,59,46,0.35)",
+                ? "1px solid color-mix(in srgb, var(--color-brand) 35%, transparent)"
+                : "1px solid color-mix(in srgb, var(--color-danger) 35%, transparent)",
             color: banner.kind === "ok" ? "var(--accent-green)" : "var(--accent-red)",
             fontSize: 13,
             marginBottom: 14,
@@ -420,9 +420,9 @@ function ParsePreview({
                   fontWeight: 700,
                   padding: "2px 8px",
                   borderRadius: 4,
-                  background: "rgba(77,158,71,0.10)",
+                  background: "color-mix(in srgb, var(--color-brand) 10%, transparent)",
                   color: "var(--accent-green)",
-                  border: "1px solid rgba(77,158,71,0.35)",
+                  border: "1px solid color-mix(in srgb, var(--color-brand) 35%, transparent)",
                   whiteSpace: "nowrap",
                 }}
               >
@@ -835,7 +835,7 @@ function ItemRow({
         padding: 8,
         border: "1px dashed var(--border)",
         borderRadius: 6,
-        background: isReady ? "rgba(77,158,71,0.04)" : "transparent",
+        background: isReady ? "color-mix(in srgb, var(--color-brand) 4%, transparent)" : "transparent",
       }}
     >
       <div>

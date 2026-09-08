@@ -196,12 +196,12 @@ export default function ApprovalQueuePage() {
                 padding: "2px 10px",
                 borderRadius: 999,
                 background:
-                  pending.length > 0 ? "rgba(245, 158, 11, 0.18)" : "var(--bg-elev, #f0f0f0)",
+                  pending.length > 0 ? "color-mix(in srgb, var(--color-warning) 18%, transparent)" : "var(--bg-elev, #f0f0f0)",
                 color:
                   pending.length > 0 ? "var(--accent-amber)" : "var(--text-muted)",
                 border:
                   pending.length > 0
-                    ? "1px solid rgba(245, 158, 11, 0.4)"
+                    ? "1px solid color-mix(in srgb, var(--color-warning) 40%, transparent)"
                     : "1px solid var(--border)",
               }}
             >
@@ -234,12 +234,12 @@ export default function ApprovalQueuePage() {
             borderRadius: 8,
             background:
               banner.kind === "ok"
-                ? "rgba(77,158,71,0.10)"
-                : "rgba(226,59,46,0.10)",
+                ? "color-mix(in srgb, var(--color-brand) 10%, transparent)"
+                : "var(--tint-danger-12)",
             border:
               banner.kind === "ok"
-                ? "1px solid rgba(77,158,71,0.35)"
-                : "1px solid rgba(226,59,46,0.35)",
+                ? "1px solid color-mix(in srgb, var(--color-brand) 35%, transparent)"
+                : "1px solid color-mix(in srgb, var(--color-danger) 35%, transparent)",
             color: banner.kind === "ok" ? "var(--accent-green)" : "var(--accent-red)",
             fontSize: 13,
             marginBottom: 14,
@@ -360,9 +360,9 @@ export default function ApprovalQueuePage() {
                         fontWeight: 600,
                         padding: "2px 8px",
                         borderRadius: 4,
-                        background: "rgba(120, 80, 220, 0.12)",
-                        color: "rgba(120, 80, 220, 1)",
-                        border: "1px solid rgba(120, 80, 220, 0.3)",
+                        background: "var(--tint-approval-12)",
+                        color: "var(--color-approval)",
+                        border: "1px solid var(--tint-approval-30)",
                       }}
                     >
                       {o.source.toUpperCase()}
@@ -417,9 +417,9 @@ export default function ApprovalQueuePage() {
                         fontSize: 11,
                         padding: "2px 6px",
                         borderRadius: 4,
-                        background: "rgba(245, 158, 11, 0.12)",
+                        background: "color-mix(in srgb, var(--color-warning) 12%, transparent)",
                         color: "var(--accent-amber)",
-                        border: "1px solid rgba(245, 158, 11, 0.3)",
+                        border: "1px solid color-mix(in srgb, var(--color-warning) 30%, transparent)",
                       }}
                     >
                       NOT DEDUCTED

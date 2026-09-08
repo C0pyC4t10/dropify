@@ -51,9 +51,9 @@ export function RiderOrdersModal({ rider, orders, onClose }: Props) {
         style={{
           fontSize: 12,
           padding: "5px 12px",
-          background: active ? "rgba(77, 158, 71, 0.18)" : "var(--bg-card)",
+          background: active ? "var(--tint-brand-18)" : "var(--bg-card)",
           color: active ? "var(--accent-green)" : "var(--text-secondary)",
-          border: `1px solid ${active ? "rgba(77,158,71,0.4)" : "var(--border)"}`,
+          border: `1px solid ${active ? "color-mix(in srgb, var(--color-brand) 40%, transparent)" : "var(--border)"}`,
         }}
       >
         {label} <span style={{ opacity: 0.7, marginLeft: 4 }}>({count})</span>

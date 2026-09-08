@@ -360,8 +360,8 @@ function OrdersPageContent() {
             className="btn btn-secondary"
             style={{
               textDecoration: "none",
-              background: pendingCount > 0 ? "rgba(245, 158, 11, 0.15)" : undefined,
-              borderColor: pendingCount > 0 ? "rgba(245, 158, 11, 0.5)" : undefined,
+              background: pendingCount > 0 ? "color-mix(in srgb, var(--color-warning) 15%, transparent)" : undefined,
+              borderColor: pendingCount > 0 ? "color-mix(in srgb, var(--color-warning) 50%, transparent)" : undefined,
               color: pendingCount > 0 ? "var(--accent-amber)" : undefined,
             }}
           >
@@ -391,7 +391,7 @@ function OrdersPageContent() {
             disabled={!filtered || filtered.length === 0}
             title="Export one row per line item, with kg and pcs in separate columns"
           >
-            <FileSpreadsheet size={14} color="#16a34a" />
+            <FileSpreadsheet size={14} color="var(--color-success)" />
             {hasSelection ? `Items XLSX (${selectedIds.size})` : "Items XLSX"}
           </button>
           <button
@@ -406,7 +406,7 @@ function OrdersPageContent() {
             disabled={!filtered || filtered.length === 0}
             title="Prep List PDF: one row per product with summed kg/pcs, single page"
           >
-            <FileText size={14} color="#dc2626" />
+            <FileText size={14} color="var(--color-danger)" />
             Prep PDF
           </button>
           <button
@@ -415,7 +415,7 @@ function OrdersPageContent() {
             disabled={!filtered || filtered.length === 0}
             title="Aggregate by date+product: one row per (date, sku) with summed kg and pcs"
           >
-            <FileSpreadsheet size={14} color="#16a34a" />
+            <FileSpreadsheet size={14} color="var(--color-success)" />
             {hasSelection ? `Inventory (${selectedIds.size})` : "Inventory"}
           </button>
           <ExportMenu
@@ -450,9 +450,9 @@ function OrdersPageContent() {
               className="btn"
               style={{
                 fontSize: 12,
-                background: filter === f ? "rgba(77, 158, 71, 0.18)" : "var(--bg-card)",
+                background: filter === f ? "var(--tint-brand-18)" : "var(--bg-card)",
                 color: filter === f ? "var(--accent-green)" : "var(--text-secondary)",
-                border: `1px solid ${filter === f ? "rgba(77,158,71,0.4)" : "var(--border)"}`,
+                border: `1px solid ${filter === f ? "color-mix(in srgb, var(--color-brand) 40%, transparent)" : "var(--border)"}`,
               }}
             >
               {f === "all" ? "All" : STATUS_LABELS[f]}
@@ -499,9 +499,9 @@ function OrdersPageContent() {
               display: "flex",
               alignItems: "center",
               gap: 5,
-              background: todayOnly ? "rgba(245, 158, 11, 0.18)" : "var(--bg-card)",
+              background: todayOnly ? "color-mix(in srgb, var(--color-warning) 18%, transparent)" : "var(--bg-card)",
               color: todayOnly ? "var(--accent-amber)" : "var(--text-secondary)",
-              border: `1px solid ${todayOnly ? "rgba(245, 158, 11, 0.5)" : "var(--border)"}`,
+              border: `1px solid ${todayOnly ? "color-mix(in srgb, var(--color-warning) 50%, transparent)" : "var(--border)"}`,
             }}
           >
             <Calendar size={12} />
@@ -534,9 +534,9 @@ function OrdersPageContent() {
               display: "flex",
               alignItems: "center",
               gap: 5,
-              background: todayCount > 0 ? "rgba(77,158,71,0.18)" : "var(--bg-card)",
+              background: todayCount > 0 ? "var(--tint-brand-18)" : "var(--bg-card)",
               color: todayCount > 0 ? "var(--accent-green)" : "var(--text-muted)",
-              border: `1px solid ${todayCount > 0 ? "rgba(77,158,71,0.5)" : "var(--border)"}`,
+              border: `1px solid ${todayCount > 0 ? "color-mix(in srgb, var(--color-brand) 50%, transparent)" : "var(--border)"}`,
               cursor: todayCount > 0 ? "pointer" : "not-allowed",
               opacity: todayCount === 0 ? 0.6 : 1,
             }}
@@ -723,7 +723,7 @@ function OrdersPageContent() {
                   onClick={() => (window.location.href = `/orders/${o.id}`)}
                   style={{
                     cursor: "pointer",
-                    background: selectedIds.has(o.id) ? "rgba(77,158,71,0.10)" : undefined,
+                    background: selectedIds.has(o.id) ? "color-mix(in srgb, var(--color-brand) 10%, transparent)" : undefined,
                   }}
                 >
                   <td
@@ -734,7 +734,7 @@ function OrdersPageContent() {
                       zIndex: 1,
                       textAlign: "center",
                       background: selectedIds.has(o.id)
-                        ? "rgba(77,158,71,0.10)"
+                        ? "color-mix(in srgb, var(--color-brand) 10%, transparent)"
                         : "var(--bg-card)",
                     }}
                   >
@@ -933,7 +933,7 @@ function OrdersPageContent() {
                   );
                 }}
               >
-                <FileText size={12} color="#dc2626" /> PDF
+                <FileText size={12} color="var(--color-danger)" /> PDF
               </button>
               <button
                 className="btn btn-secondary"
@@ -949,7 +949,7 @@ function OrdersPageContent() {
                   });
                 }}
               >
-                <FileSpreadsheet size={12} color="#16a34a" /> XLSX
+                <FileSpreadsheet size={12} color="var(--color-success)" /> XLSX
               </button>
             </div>
           </div>
@@ -1030,16 +1030,16 @@ function OrdersPageContent() {
               width: "100%",
               maxWidth: 440,
               padding: 20,
-              background: "var(--bg-card, #1d2420)",
+              background: "var(--bg-card)",
               border: "1px solid var(--border)",
               borderRadius: 10,
               boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
-              color: "var(--text-primary, #eaece8)",
+              color: "var(--text-primary)",
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0, display: "flex", alignItems: "center", gap: 6, color: "var(--text-primary, #eaece8)" }}>
-                <Map size={16} color="#4d9e47" /> Plan Route for {selectedIds.size} order{selectedIds.size !== 1 ? "s" : ""}
+              <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0, display: "flex", alignItems: "center", gap: 6, color: "var(--text-primary)" }}>
+                <Map size={16} color="var(--color-brand)" /> Plan Route for {selectedIds.size} order{selectedIds.size !== 1 ? "s" : ""}
               </h3>
               <button
                 onClick={() => setShowPlanRoutePicker(false)}
@@ -1047,7 +1047,7 @@ function OrdersPageContent() {
                 style={{
                   background: "transparent",
                   border: 0,
-                  color: "var(--text-secondary, #9aa89a)",
+                  color: "var(--text-secondary)",
                   cursor: "pointer",
                   fontSize: 22,
                   lineHeight: 1,
@@ -1057,7 +1057,7 @@ function OrdersPageContent() {
                 ×
               </button>
             </div>
-            <p style={{ fontSize: 12, color: "var(--text-secondary, #9aa89a)", margin: "0 0 14px", lineHeight: 1.5 }}>
+            <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 14px", lineHeight: 1.5 }}>
               Pick the rider to assign these orders to. The route planner will auto-optimize
               the visit order and show them on a map.
             </p>
@@ -1075,14 +1075,14 @@ function OrdersPageContent() {
                 alignItems: "center",
                 gap: 12,
                 padding: "12px 14px",
-                background: "rgba(77,158,71,0.15)",
-                border: "1px solid rgba(77,158,71,0.5)",
+                background: "color-mix(in srgb, var(--color-brand) 15%, transparent)",
+                border: "1px solid color-mix(in srgb, var(--color-brand) 50%, transparent)",
                 borderRadius: 8,
                 cursor: "pointer",
                 textAlign: "left",
                 marginBottom: 14,
                 width: "100%",
-                color: "var(--text-primary, #eaece8)",
+                color: "var(--text-primary)",
               }}
             >
               <div
@@ -1090,7 +1090,7 @@ function OrdersPageContent() {
                   width: 36,
                   height: 36,
                   borderRadius: 18,
-                  background: "#4d9e47",
+                  background: "var(--color-brand)",
                   color: "#fff",
                   display: "flex",
                   alignItems: "center",
@@ -1101,21 +1101,21 @@ function OrdersPageContent() {
                 <Compass size={17} color="#fff" />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 14, color: "#4d9e47" }}>Preview without rider</div>
-                <div style={{ fontSize: 12, color: "var(--text-secondary, #9aa89a)", marginTop: 2 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: "var(--color-brand)" }}>Preview without rider</div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
                   See which orders go which direction from the shop (NE/NW/SE/SW)
                 </div>
               </div>
-              <span style={{ fontSize: 13, color: "#4d9e47", fontWeight: 600, flexShrink: 0 }}>Open →</span>
+              <span style={{ fontSize: 13, color: "var(--color-brand)", fontWeight: 600, flexShrink: 0 }}>Open →</span>
             </button>
 
-            <div style={{ fontSize: 11, color: "var(--text-muted, #5f6e62)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, fontWeight: 700 }}>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, fontWeight: 700 }}>
               Or assign to a rider
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 280, overflowY: "auto" }}>
               {riders.length === 0 ? (
-                <div style={{ color: "var(--text-secondary, #9aa89a)", fontSize: 13, padding: 12, textAlign: "center" }}>
+                <div style={{ color: "var(--text-secondary)", fontSize: 13, padding: 12, textAlign: "center" }}>
                   No riders yet. Add riders in the Riders page.
                 </div>
               ) : (
@@ -1129,19 +1129,19 @@ function OrdersPageContent() {
                       router.push(`/routes/${r.id}?date=${date}&selectedIds=${ids}`);
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = "rgba(77,158,71,0.18)";
-                      e.currentTarget.style.borderColor = "rgba(77,158,71,0.6)";
+                      e.currentTarget.style.background = "var(--tint-brand-18)";
+                      e.currentTarget.style.borderColor = "color-mix(in srgb, var(--color-brand) 60%, transparent)";
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.background = "#273029";
-                      e.currentTarget.style.borderColor = "#2c382e";
+                      e.currentTarget.style.background = "var(--bg-hover)";
+                      e.currentTarget.style.borderColor = "var(--border)";
                     }}
                     style={{
                       display: "flex",
                       alignItems: "center",
                       gap: 12,
                       padding: "12px 14px",
-                      background: "#273029",
+                      background: "var(--bg-hover)",
                       border: "1px solid #2c382e",
                       borderRadius: 8,
                       cursor: "pointer",
@@ -1154,7 +1154,7 @@ function OrdersPageContent() {
                         width: 36,
                         height: 36,
                         borderRadius: 18,
-                        background: r.status === "active" ? "#4d9e47" : "#5f6e62",
+                        background: r.status === "active" ? "var(--color-brand)" : "var(--text-muted)",
                         color: "#fff",
                         display: "flex",
                         alignItems: "center",
@@ -1165,12 +1165,12 @@ function OrdersPageContent() {
                       <Bike size={17} color="#fff" />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: 14, color: "#eaece8" }}>{r.name}</div>
-                      <div style={{ fontSize: 12, color: "#9aa89a", marginTop: 2 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text-primary)" }}>{r.name}</div>
+                      <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
                         {r.vehicle || "—"} · {r.status}
                       </div>
                     </div>
-                    <span style={{ fontSize: 13, color: "#4d9e47", fontWeight: 600, flexShrink: 0 }}>Open →</span>
+                    <span style={{ fontSize: 13, color: "var(--color-brand)", fontWeight: 600, flexShrink: 0 }}>Open →</span>
                   </button>
                 ))
               )}

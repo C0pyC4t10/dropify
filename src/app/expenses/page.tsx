@@ -187,11 +187,11 @@ export default function ExpensesPage() {
             padding: "10px 14px",
             borderRadius: 8,
             background:
-              banner.kind === "ok" ? "rgba(77,158,71,0.10)" : "rgba(226,59,46,0.10)",
+              banner.kind === "ok" ? "color-mix(in srgb, var(--color-brand) 10%, transparent)" : "var(--tint-danger-12)",
             border:
               banner.kind === "ok"
-                ? "1px solid rgba(77,158,71,0.35)"
-                : "1px solid rgba(226,59,46,0.35)",
+                ? "1px solid color-mix(in srgb, var(--color-brand) 35%, transparent)"
+                : "1px solid color-mix(in srgb, var(--color-danger) 35%, transparent)",
             color: banner.kind === "ok" ? "var(--accent-green)" : "var(--accent-red)",
             fontSize: 13,
             marginBottom: 14,
@@ -257,9 +257,9 @@ export default function ExpensesPage() {
                 onClick={() => setQuickRange(r.k as "today" | "7d" | "30d" | "month")}
                 style={{
                   fontSize: 12,
-                  background: active ? "rgba(77, 158, 71, 0.18)" : "var(--bg-card)",
+                  background: active ? "var(--tint-brand-18)" : "var(--bg-card)",
                   color: active ? "var(--accent-green)" : "var(--text-secondary)",
-                  border: `1px solid ${active ? "rgba(77,158,71,0.4)" : "var(--border)"}`,
+                  border: `1px solid ${active ? "color-mix(in srgb, var(--color-brand) 40%, transparent)" : "var(--border)"}`,
                 }}
               >
                 {r.l}
@@ -311,9 +311,9 @@ export default function ExpensesPage() {
               className="btn"
               style={{
                 fontSize: 12,
-                background: active ? "rgba(232,163,61,0.18)" : "var(--bg-card)",
+                background: active ? "var(--tint-warning-18)" : "var(--bg-card)",
                 color: active ? "var(--accent-amber)" : "var(--text-secondary)",
-                border: `1px solid ${active ? "rgba(232,163,61,0.4)" : "var(--border)"}`,
+                border: `1px solid ${active ? "color-mix(in srgb, var(--color-warning) 40%, transparent)" : "var(--border)"}`,
               }}
             >
               {c === "all" ? "All Categories" : EXPENSE_CATEGORY_LABELS[c]}

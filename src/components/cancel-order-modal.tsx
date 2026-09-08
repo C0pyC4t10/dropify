@@ -96,11 +96,11 @@ export function CancelOrderModal({ open, orderNo, onClose, onConfirm }: Props) {
                 fontSize: 12,
                 padding: "8px 10px",
                 background:
-                  selected === r.key ? "rgba(226, 59, 46, 0.15)" : "var(--bg-primary)",
+                  selected === r.key ? "var(--tint-danger-18)" : "var(--bg-primary)",
                 color:
                   selected === r.key ? "var(--accent-red)" : "var(--text-primary)",
                 border: `1px solid ${
-                  selected === r.key ? "rgba(226,59,46,0.4)" : "var(--border)"
+                  selected === r.key ? "color-mix(in srgb, var(--color-danger) 40%, transparent)" : "var(--border)"
                 }`,
                 cursor: busy ? "not-allowed" : "pointer",
               }}

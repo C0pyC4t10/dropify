@@ -184,7 +184,7 @@ export default function RiderPlanPage({
                 <div>{o.area}{o.address ? ` — ${o.address}` : ""}</div>
                 <div style={{ marginTop: 2 }}>{formatMoney(o.total)} · {o.customerPhone}</div>
                 {leg && (
-                  <div style={{ marginTop: 2, color: "#16a34a", fontWeight: 600 }}>
+                  <div style={{ marginTop: 2, color: "var(--color-success)", fontWeight: 600 }}>
                     {distanceLabel(leg.distanceMeters)} · {etaLabel(leg.estSeconds)}
                   </div>
                 )}
@@ -327,9 +327,9 @@ export default function RiderPlanPage({
               textTransform: "uppercase",
               padding: "2px 8px",
               borderRadius: 999,
-              background: "rgba(77,158,71,0.15)",
+              background: "color-mix(in srgb, var(--color-brand) 15%, transparent)",
               color: "var(--accent-green)",
-              border: "1px solid rgba(77,158,71,0.4)",
+              border: "1px solid color-mix(in srgb, var(--color-brand) 40%, transparent)",
               display: "inline-flex",
               alignItems: "center",
               gap: 4,
@@ -365,7 +365,7 @@ export default function RiderPlanPage({
             padding: "8px 12px",
             borderRadius: 6,
             marginBottom: 12,
-            background: message.kind === "ok" ? "rgba(22,163,74,0.12)" : "rgba(220,38,38,0.12)",
+            background: message.kind === "ok" ? "var(--tint-brand-12)" : "var(--tint-danger-12)",
             color: message.kind === "ok" ? "var(--accent-green)" : "var(--accent-red)",
             fontSize: 13,
             fontWeight: 500,
@@ -446,7 +446,7 @@ export default function RiderPlanPage({
                           alignItems: "center",
                           gap: 8,
                           padding: "6px 8px",
-                          background: dragOverId === id ? "rgba(22,163,74,0.10)" : "var(--bg-elevated, #1a1a1a)",
+                          background: dragOverId === id ? "var(--tint-brand-12)" : "var(--bg-elevated, #1a1a1a)",
                           border: "1px solid var(--border)",
                           borderRadius: 6,
                           cursor: "grab",
@@ -572,7 +572,7 @@ export default function RiderPlanPage({
                         alignItems: "center",
                         gap: 8,
                         padding: "5px 8px",
-                        background: checked ? "rgba(22,163,74,0.10)" : "transparent",
+                        background: checked ? "var(--tint-brand-12)" : "transparent",
                         border: "1px solid var(--border)",
                         borderRadius: 5,
                         cursor: "pointer",

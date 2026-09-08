@@ -159,7 +159,7 @@ function PrintContent() {
                   </td>
                   <td style={{ padding: "6px 8px", fontSize: 11, maxWidth: 180, overflow: "hidden" }}>{items}</td>
                   <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700 }}>{formatMoney(o.total)}</td>
-                  <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, color: cod > 0 ? "#b91c1c" : "#16a34a" }}>
+                  <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, color: cod > 0 ? "#b91c1c" : "var(--color-success)" }}>
                     {cod > 0 ? formatMoney(cod) : "PAID"}
                   </td>
                 </tr>

@@ -375,10 +375,10 @@ export default function AdminCompanyDetailPage({
                           borderRadius: 999,
                           background:
                             o.status === "delivered"
-                              ? "rgba(77,158,71,0.18)"
+                              ? "var(--tint-brand-18)"
                               : o.status === "cancelled"
-                              ? "rgba(226,59,46,0.18)"
-                              : "rgba(232,163,61,0.18)",
+                              ? "var(--tint-danger-18)"
+                              : "var(--tint-warning-18)",
                           color:
                             o.status === "delivered"
                               ? "var(--accent-green)"
