@@ -306,6 +306,17 @@ function CompanyForm({
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Save failed");
 
+      // Force a full reload so the runtime CSS variable update
+      // (--accent-green-override set by <ActiveCompanyProvider> on the html
+      // element) takes visual effect everywhere. Without this, the user
+      // sees the form close but the rest of the chrome stays the old
+      // color until the next navigation.
+      onSaved();
+      if (typeof window !== "undefined") {
+        setTimeout(() => window.location.reload(), 250);
+      }
+      return;
+
       if (isNew && j?.id) {
         // Auto-switch to the freshly-created tenant so the operator lands
         // inside it on the next page load.
