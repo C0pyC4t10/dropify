@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, BookOpen } from "lucide-react";
+import { ArrowLeft, BookOpen, MessageSquare } from "lucide-react";
 import Link from "next/link";
 
 interface Swatch {
@@ -95,6 +95,57 @@ export default function DesignSystemPage() {
           </p>
         </div>
       </div>
+
+      <Section title="Brand voice (Part 2 of the guideline)">
+        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 12px" }}>
+          Dropify sounds like a senior dispatcher who has run the floor for ten
+          years. Three voice traits, each with a do / don&apos;t / boundary case.
+          Source of truth: <code style={{ fontFamily: "monospace" }}>BRAND_GUIDELINE.md</code> §2.1.
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 10 }}>
+          <VoiceCard
+            trait="Direct"
+            do='"This won\u2019t work for you."'
+            dont='"We have some concerns about whether this might be the right fit."'
+            boundary="Direct without being blunt. We never weaponize directness to shame the reader."
+          />
+          <VoiceCard
+            trait="Plain"
+            do='"Stock is low."'
+            dont='"Inventory levels are approaching a critical threshold requiring your immediate attention."'
+            boundary="Plain without being curt. \u2018Stock is low\u2019 works. \u2018Stock bad\u2019 does not."
+          />
+          <VoiceCard
+            trait="Confident"
+            do='"The pharmacy seed ships tomorrow."'
+            dont='"We\u2019re aiming to ship the pharmacy seed at some point in the hopefully near future."'
+            boundary="Confident without being braggy. We state what we will do. We don\u2019t boast about what we have done."
+          />
+          <VoiceCard
+            trait="Operator-aware"
+            do='"\u09f32,000 is your break-even for the route. Only the bigger orders get a rider. That\u2019s the trade-off."'
+            dont="Generic SaaS copy that pretends operators don\u2019t make tradeoffs."
+            boundary="Operator-aware without being lecture-y. We don\u2019t explain their job to them."
+          />
+        </div>
+        <div
+          style={{
+            marginTop: 10,
+            padding: 12,
+            background: "var(--bg-secondary)",
+            border: "1px solid var(--color-border)",
+            borderRadius: 8,
+            fontSize: 12,
+          }}
+        >
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>
+            TAGLINE
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>
+            The ops layer under every delivery business.
+          </div>
+        </div>
+      </Section>
 
       <Section title="Semantic layer (use these)">
         <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 12px" }}>
@@ -296,6 +347,66 @@ function TintTile({ name, var: cssVar }: { name: string; var: string }) {
       >
         var({cssVar})
       </code>
+    </div>
+  );
+}
+
+function VoiceCard({
+  trait,
+  do: doExample,
+  dont,
+  boundary,
+}: {
+  trait: string;
+  do: string;
+  dont: string;
+  boundary: string;
+}) {
+  return (
+    <div className="card" style={{ padding: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          fontSize: 13,
+          fontWeight: 600,
+          marginBottom: 8,
+        }}
+      >
+        <MessageSquare size={13} color="var(--color-brand)" />
+        {trait}
+      </div>
+      <Row label="Do" example={doExample} color="var(--color-success)" />
+      <Row label="Don't" example={dont} color="var(--color-danger)" />
+      <div
+        style={{
+          fontSize: 11,
+          color: "var(--text-muted)",
+          marginTop: 8,
+          paddingTop: 6,
+          borderTop: "1px solid var(--border)",
+        }}
+      >
+        <strong>Boundary:</strong> {boundary}
+      </div>
+    </div>
+  );
+}
+
+function Row({
+  label,
+  example,
+  color,
+}: {
+  label: string;
+  example: string;
+  color: string;
+}) {
+  return (
+    <div style={{ marginBottom: 4, fontSize: 11 }}>
+      <span style={{ color: "var(--text-muted)", fontWeight: 600 }}>{label}: </span>
+      <span style={{ color, fontStyle: "italic" }}>{example}</span>
     </div>
   );
 }

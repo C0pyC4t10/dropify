@@ -1,6 +1,7 @@
 "use client";
 
-import { Beef, Phone, Mail, Building2 } from "lucide-react";
+import { Beef, Phone, Building2 } from "lucide-react";
+import Link from "next/link";
 import { useActiveCompany } from "@/lib/active-company";
 import { useEffect, useState } from "react";
 import type { Settings } from "@/lib/types";
@@ -62,18 +63,42 @@ export function Footer({ className = "" }: FooterProps) {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Icon size={16} color="var(--accent-red)" />
+          <Icon size={16} color="var(--color-brand)" />
           <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{companyName}</span>
           {activeCompany?.tagline && (
             <span style={{ color: "var(--text-muted)" }}>· {activeCompany.tagline}</span>
           )}
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+            flexWrap: "wrap",
+            color: "var(--text-muted)",
+            fontSize: 12,
+          }}
+        >
+          <span style={{ fontStyle: "italic" }}>
+            The ops layer under every delivery business.
+          </span>
+          <Link
+            href="/about"
+            style={{ color: "var(--color-brand)", textDecoration: "none" }}
+          >
+            About Dropify
+          </Link>
           {phone && (
             <a
               href={`tel:${phone}`}
-              style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "var(--text-secondary)", textDecoration: "none" }}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                color: "var(--text-secondary)",
+                textDecoration: "none",
+              }}
             >
               <Phone size={12} /> {phone}
             </a>

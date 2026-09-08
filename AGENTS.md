@@ -67,3 +67,41 @@
 - Type-check with `npx tsc --noEmit`; lint with `npm run lint` (pre-existing
   warnings/errors in unrelated files are expected — don't try to fix them
   unless asked).
+
+## Brand voice — keep commits + UI copy on-brand
+
+Dropify sounds like a senior dispatcher who has run the floor for ten
+years. See **`BRAND_GUIDELINE.md` §2.1** for the full rules. The
+non-negotiable bits for code + UI copy:
+
+- **Direct, not blunt.** "This won't work for you." beats
+  "We have some concerns about whether this might be the right fit."
+- **Plain, not curt.** "Stock is low." beats "Inventory levels are
+  approaching a critical threshold requiring your immediate attention."
+- **Confident, not braggy.** State what we will do, don't boast about
+  what we have done.
+- **Operator-aware, not lecture-y.** The reader is a working operator,
+  not an IT director; do not explain their job to them.
+
+**Voice checklist for every UI string you write:**
+
+1. Could the operator say this out loud on the dispatch floor? If no,
+   rewrite.
+2. Is there jargon that hides what the action actually does? Cut it.
+3. Are you using marketing-speak ("trusted", "innovative",
+   "customer-focused")? Cut it. Those words belong to no one.
+4. Is the sentence 2× longer than it needs to be? Cut it.
+5. Does the message explain what to do next, not just what went wrong?
+   Add the action.
+
+**Color + visual tokens — read the design system, don't hard-code.**
+
+- Color palette is fully tokenized in `src/app/globals.css`. Components
+  must consume semantic tokens (`--color-brand`, `--color-success`,
+  `--color-warning`, `--color-danger`, `--color-info`, `--tint-brand-12`,
+  etc.), not the brand palette directly (`--accent-green`).
+- The full system is documented live at `/admin/design-system` with
+  live swatches and the brand voice card.
+- Hard-coded hex values in new code are a review-blocker. Existing
+  legacy hexes are tracked down over time — see the brand-guideline
+  traceability table in `BRAND_GUIDELINE.md` §6.1.
