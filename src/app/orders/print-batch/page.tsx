@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { Order, Rider, Settings } from "@/lib/types";
-import { formatMoney, bdParts } from "@/lib/ui";
+import { formatMoney, bdParts, EXPENSE_CATEGORY_LABELS, EXPENSE_CATEGORY_COLORS } from "@/lib/ui";
 
 /** Categories for manual intake of PDF / phone orders.
  *  `kind: "enter"` rows count as orders the operator intends to put into the
@@ -209,6 +209,15 @@ function PrintBatchPage() {
   const [riders, setRiders] = useState<Rider[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Today's expense summary — fetched for the report date so the printed PDF
+  // shows a per-category breakdown of what was spent on the day. Empty
+  // summary on first paint; replaced once the fetch resolves.
+  const [expenseSummary, setExpenseSummary] = useState<{
+    total: number;
+    count: number;
+    byCategory: Array<{ category: string; total: number; count: number }>;
+  } | null>(null);
+
   // Manual intake — operator's breakdown of orders received today via
   // phone / WhatsApp / PDF list. Each row = one category + count, so the
   // operator can record both the good orders (Inside Dhaka / Outside Dhaka)
@@ -294,7 +303,48 @@ function PrintBatchPage() {
         setLoading(false);
       }
     })();
-  }, [idsParam, extraIdsParam]);
+
+    // Expense summary for the report date — only meaningful in list view
+    // (the daily summary PDF). Other modes don't show expenses so skip the
+    // round-trip to save a request.
+    if (listView) {
+      // BD-local date for "today" if the URL didn't pin one.
+      const now = new Date();
+      const bdKey = new Date(now.getTime() + 6 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
+      const dateKey = todayDateStr || bdKey;
+      const url = `/api/expenses/summary?from=${encodeURIComponent(dateKey)}&to=${encodeURIComponent(dateKey)}`;
+      fetch(url, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data && typeof data === "object") {
+            setExpenseSummary({
+              total: Number(data.total) || 0,
+              count: Number(data.count) || 0,
+              byCategory: Array.isArray(data.byCategory)
+                ? data.byCategory
+                    .filter(
+                      (c: unknown): c is { category: string; total: number; count: number } =>
+                        typeof c === "object" &&
+                        c !== null &&
+                        typeof (c as { category?: unknown }).category === "string"
+                    )
+                    .map((c: { category: string; total: number; count: number }) => ({
+                      category: c.category,
+                      total: Number(c.total) || 0,
+                      count: Number(c.count) || 0,
+                    }))
+                : [],
+            });
+          }
+        })
+        .catch(() => {
+          // Expense endpoint failure is non-fatal — leave summary null and
+          // skip the section in the PDF.
+        });
+    }
+  }, [idsParam, extraIdsParam, listView, todayDateStr]);
 
   // Auto-print once loaded — only when not in download/preview mode.
   useEffect(() => {
@@ -470,7 +520,7 @@ function PrintBatchPage() {
             border-top: 4px solid var(--kpi-color, #374151);
             border-radius: 6px;
             background: linear-gradient(180deg, #fff 0%, var(--kpi-bg, #fff) 100%);
-            padding: 10px 12px;
+            padding: 6px 12px;
             overflow: hidden;
           }
           .kpi::after {
@@ -488,12 +538,13 @@ function PrintBatchPage() {
           .kpi.red    { --kpi-color: #b91c1c; --kpi-bg: #fef2f2; }
           .kpi.amber  { --kpi-color: #b45309; --kpi-bg: #fffbeb; }
           .kpi.blue   { --kpi-color: #1d4ed8; --kpi-bg: #eff6ff; }
-          .kpi .label { font-size: 9.5px; font-weight: 700; color: var(--kpi-color, var(--muted)); letter-spacing: 0.5px; text-transform: uppercase; }
-          .kpi .bn { font-size: 9.5px; color: var(--muted); margin-top: 1px; font-weight: 600; }
+          .kpi .label { font-size: 9.5px; font-weight: 700; color: var(--kpi-color, var(--muted)); letter-spacing: 0.5px; text-transform: uppercase; line-height: 1.2; }
+          .kpi .bn { font-size: 9.5px; color: var(--muted); margin-top: 0; font-weight: 600; line-height: 1.2; }
           .kpi .value {
-            font-size: 22px; font-weight: 800; color: var(--kpi-color, var(--text));
-            margin-top: 6px; font-variant-numeric: tabular-nums; letter-spacing: -0.5px;
+            font-size: 19px; font-weight: 800; color: var(--kpi-color, var(--text));
+            margin-top: 2px; font-variant-numeric: tabular-nums; letter-spacing: -0.5px;
             position: relative; z-index: 1;
+            line-height: 1.1;
           }
 
           /* ===== Status distribution bar (stacked horizontal) ===== */
@@ -542,7 +593,7 @@ function PrintBatchPage() {
             margin: 4px 0 10px;
           }
           .intake-table thead th {
-            background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
+            background: linear-gradient(180deg, #064e3b 0%, #065f46 100%);
             color: #fff;
             padding: 7px 10px;
             font-weight: 700;
@@ -840,6 +891,7 @@ function PrintBatchPage() {
             todayDateStr={todayDateStr}
             intakeRows={intakeRows}
             pdfTotal={pdfTotal}
+            expenseSummary={expenseSummary}
           />
         ) : (
           pageChunks.map((chunk, chunkIdx) => {
@@ -1776,6 +1828,7 @@ function ListViewTable({
   todayDateStr,
   intakeRows,
   pdfTotal,
+  expenseSummary,
 }: {
   orders: Order[];
   mainIds: number[];
@@ -1787,6 +1840,13 @@ function ListViewTable({
   intakeRows: IntakeRow[];
   /** Raw "Total Order From PDF" — operator-entered string (may be empty). */
   pdfTotal: string;
+  /** Today's expense summary fetched from /api/expenses/summary. Null while
+   *  loading or if the request failed — in that case we skip the section. */
+  expenseSummary: {
+    total: number;
+    count: number;
+    byCategory: Array<{ category: string; total: number; count: number }>;
+  } | null;
 }) {
   // The main orders table = only the orders whose ids appear in mainIds
   // (i.e. orders delivered today). Other orders in `orders` were fetched
@@ -1871,33 +1931,27 @@ const cancelledTotal = tableOrders
       {/* ===== Section: Order Summary ===== */}
       <div className="section-title">
         <span className="en">Order Summary</span>
-        <span className="bn">অর্ডার সারাংশ</span>
       </div>
 
       <div className="kpi-grid">
         <div className="kpi black">
           <div className="label">Total Orders</div>
-          <div className="bn">মোট অর্ডার</div>
           <div className="value">{tableOrders.length}</div>
         </div>
         <div className="kpi green">
           <div className="label">Delivered</div>
-          <div className="bn">ডেলিভার্ড</div>
           <div className="value">{statusCounts.delivered}</div>
         </div>
         <div className="kpi red">
           <div className="label">Cancelled</div>
-          <div className="bn">বাতিল</div>
           <div className="value">{statusCounts.cancelled}</div>
         </div>
         <div className="kpi amber">
           <div className="label">Returned</div>
-          <div className="bn">ফিরিয়ে</div>
           <div className="value">{statusCounts.returned}</div>
         </div>
         <div className="kpi blue">
           <div className="label">Cash Collected</div>
-          <div className="bn">মোট সংগৃহীত</div>
           <div className="value" style={{ display: "flex", alignItems: "baseline", justifyContent: "flex-end", gap: 2 }}>
             <span style={{ fontSize: 14, color: "var(--muted)", fontWeight: 700 }}>৳</span>
             <span>{cashCollected.toLocaleString("en-IN")}</span>
@@ -1966,6 +2020,48 @@ const cancelledTotal = tableOrders
           </>
         );
       })()}
+
+      {/* ===== Section: Today's Expenses =====
+          Skipped entirely if the expense summary hasn't loaded yet, or if
+          there's nothing to show (no entries today). Renders just the
+          per-category table — KPI cards removed. */}
+      {expenseSummary && expenseSummary.byCategory.length > 0 && (
+        <>
+          <div className="section-title">
+            <span className="en">Today&apos;s Expenses</span>
+          </div>
+
+          <table className="intake-table expense-table">
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left" }}>Category<span className="bn">খাত</span></th>
+                <th style={{ textAlign: "right", width: 60 }}>Count<span className="bn">সংখ্যা</span></th>
+                <th style={{ textAlign: "right", width: 110 }}>Amount (৳)<span className="bn">পরিমাণ</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {expenseSummary.byCategory.map((c) => (
+                <tr key={c.category}>
+                  <td>
+                    <div
+                      style={{
+                        fontWeight: 700,
+                        color: EXPENSE_CATEGORY_COLORS[c.category] || "var(--text)",
+                      }}
+                    >
+                      {EXPENSE_CATEGORY_LABELS[c.category] || c.category}
+                    </div>
+                  </td>
+                  <td className="count">{c.count}</td>
+                  <td className="count" style={{ color: "orangered" }}>
+                    ৳{c.total.toLocaleString("en-IN")}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
 
       {/* ===== Intake breakdown (PDF / phone orders, operator-entered) =====
          No section title on the PDF — the table is self-explanatory. */}
@@ -2050,7 +2146,6 @@ const cancelledTotal = tableOrders
       {/* ===== Section: Order Details ===== */}
       <div className="section-title">
         <span className="en">Order Details</span>
-        <span className="bn">অর্ডার বিস্তারিত তালিকা</span>
       </div>
 
       <table className="orders-table">
