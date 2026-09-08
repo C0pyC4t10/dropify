@@ -180,9 +180,33 @@ export default function AdminConsolePage() {
             {data.companies.map((c) => (
               <tr key={c.id}>
                 <td>
-                  <div style={{ fontWeight: 600 }}>{c.name}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "monospace" }}>
-                    {c.slug}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span
+                      title={
+                        c.accentColor
+                          ? `${c.name} accent: ${c.accentColor}`
+                          : `${c.name} (no accent set \u2014 uses Dropify Green default)`
+                      }
+                      style={{
+                        width: 14,
+                        height: 14,
+                        borderRadius: 4,
+                        flexShrink: 0,
+                        background:
+                          c.accentColor && /^#?[0-9a-fA-F]{3,8}$/.test(c.accentColor)
+                            ? c.accentColor.startsWith("#")
+                              ? c.accentColor
+                              : `#${c.accentColor}`
+                            : "var(--bg-elevated, #2a2a2a)",
+                        border: "1px solid var(--border)",
+                      }}
+                    />
+                    <div>
+                      <div style={{ fontWeight: 600 }}>{c.name}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "monospace" }}>
+                        {c.slug}
+                      </div>
+                    </div>
                   </div>
                 </td>
                 <td style={{ textAlign: "right" }}>{c.products}</td>
