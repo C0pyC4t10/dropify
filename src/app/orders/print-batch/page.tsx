@@ -5,6 +5,165 @@ import { useSearchParams } from "next/navigation";
 import type { Order, Rider, Settings } from "@/lib/types";
 import { formatMoney, bdParts } from "@/lib/ui";
 
+/** Categories for manual intake of PDF / phone orders.
+ *  `kind: "enter"` rows count as orders the operator intends to put into the
+ *  system today. `kind: "skip"` rows are orders received but rejected (dup,
+ *  unreachable, out-of-stock, etc.) and are shown for reconciliation. */
+type IntakeCategory =
+  | "inside_dhaka"
+  | "outside_dhaka"
+  | "duplicate"
+  | "wrong_number"
+  | "invalid_address"
+  | "out_of_stock"
+  | "cancelled"
+  | "other";
+
+interface IntakeCategoryDef {
+  id: IntakeCategory;
+  /** English label shown in dropdown and PDF. */
+  label: string;
+  /** Bangla label shown in PDF. */
+  labelBn: string;
+  /** Whether orders in this category will be entered into the system. */
+  kind: "enter" | "skip";
+}
+
+const INTAKE_CATEGORIES: IntakeCategoryDef[] = [
+  { id: "inside_dhaka",    label: "Inside Dhaka",            labelBn: "ঢাকার ভিতরে",       kind: "enter" },
+  { id: "outside_dhaka",   label: "Outside Dhaka",           labelBn: "ঢাকার বাইরে",       kind: "enter" },
+  { id: "duplicate",       label: "Duplicate order",         labelBn: "ডুপ্লিকেট অর্ডার",   kind: "skip"  },
+  { id: "wrong_number",    label: "Wrong number",            labelBn: "ভুল নম্বর",          kind: "skip"  },
+  { id: "invalid_address", label: "Invalid address",         labelBn: "ঠিকানা অনুপস্থিত",   kind: "skip"  },
+  { id: "out_of_stock",    label: "Out of stock",            labelBn: "স্টক নেই",           kind: "skip"  },
+  { id: "cancelled",       label: "Customer cancelled",      labelBn: "ক্রেতা বাতিল",       kind: "skip"  },
+  { id: "other",           label: "Other",                   labelBn: "অন্যান্য",           kind: "skip"  },
+];
+
+const INTAKE_CATEGORY_LABEL: Record<IntakeCategory, string> = Object.fromEntries(
+  INTAKE_CATEGORIES.map((c) => [c.id, c.label])
+) as Record<IntakeCategory, string>;
+const INTAKE_CATEGORY_LABEL_BN: Record<IntakeCategory, string> = Object.fromEntries(
+  INTAKE_CATEGORIES.map((c) => [c.id, c.labelBn])
+) as Record<IntakeCategory, string>;
+const INTAKE_CATEGORY_KIND: Record<IntakeCategory, "enter" | "skip"> = Object.fromEntries(
+  INTAKE_CATEGORIES.map((c) => [c.id, c.kind])
+) as Record<IntakeCategory, "enter" | "skip">;
+
+/** One row in the manual intake breakdown. */
+interface IntakeRow {
+  /** Local unique id used as React key + stable identity in the saved payload. */
+  uid: string;
+  category: IntakeCategory;
+  /** Count typed by the operator — kept as string so empty input is allowed. */
+  count: string;
+  /** Optional free-text note for "Other" rows. */
+  note?: string;
+  /** Order numbers from the PDF / phone list — comma- or space-separated.
+   *  Lets the operator cross-check which specific orders fall in each bucket. */
+  orderNumbers?: string;
+}
+
+/** Read the per-day manual-intake localStorage entry.
+ *  Returns the new structured `rows` shape if present, otherwise `[]`. Old
+ *  flat-schema entries (`{ pdfTotal, outsideDhaka }`) are ignored — operators
+ *  re-enter under the new structured model on first use. SSR-safe. */
+function readIntake(key: string): { rows: IntakeRow[]; pdfTotal: string } {
+  if (typeof window === "undefined") return { rows: [], pdfTotal: "" };
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return { rows: [], pdfTotal: "" };
+    const parsed = JSON.parse(raw);
+    const pdfTotal =
+      typeof parsed?.pdfTotal === "string"
+        ? parsed.pdfTotal
+        : parsed?.pdfTotal != null && Number.isFinite(Number(parsed.pdfTotal))
+        ? String(Number(parsed.pdfTotal))
+        : "";
+    if (!Array.isArray(parsed?.rows)) return { rows: [], pdfTotal };
+    const rows = parsed.rows
+      .filter(
+        (r: unknown): r is { category: string; count: unknown; note?: unknown; uid?: unknown; orderNumbers?: unknown } =>
+          typeof r === "object" && r !== null &&
+          typeof (r as { category?: unknown }).category === "string" &&
+          (r as { category: string }).category in INTAKE_CATEGORY_LABEL
+      )
+      .map((r: { uid?: unknown; category: string; count: unknown; note?: unknown; orderNumbers?: unknown }) => ({
+        uid: typeof r.uid === "string" ? r.uid : crypto.randomUUID(),
+        category: r.category as IntakeCategory,
+        count: typeof r.count === "string" ? r.count : String(Number(r.count) || ""),
+        note: typeof r.note === "string" ? r.note : "",
+        orderNumbers: typeof r.orderNumbers === "string" ? r.orderNumbers : "",
+      }));
+    return { rows, pdfTotal };
+  } catch {
+    return { rows: [], pdfTotal: "" };
+  }
+}
+
+/** Safe numeric helper for an intake row count. Empty / NaN → 0. */
+function rowCount(r: Pick<IntakeRow, "count">): number {
+  const n = Number(r.count);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** One named, persistent copy of the intake breakdown. Stored in
+ *  localStorage under `daily-summary-snapshots` so the operator can reopen
+ *  yesterday's or last week's report and re-download the PDF. */
+interface IntakeSnapshot {
+  id: string;
+  /** Operator-supplied name (or auto-generated). */
+  name: string;
+  /** ISO timestamp when the snapshot was created. */
+  savedAt: string;
+  /** The report date the snapshot belongs to (todayDateStr). */
+  date: string;
+  rows: IntakeRow[];
+  /** Raw "Total Order From PDF" at snapshot time. Optional so older
+   *  snapshots (saved before this field existed) still load. */
+  pdfTotal?: string;
+}
+
+const SNAPSHOTS_STORAGE_KEY = "daily-summary-snapshots";
+
+function readSnapshots(): IntakeSnapshot[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(SNAPSHOTS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    // Coerce — older / malformed entries are dropped rather than thrown out.
+    return parsed
+      .filter(
+        (s: unknown): s is { id: string; name: unknown; savedAt: unknown; date: unknown; rows: unknown; pdfTotal?: unknown } =>
+          typeof s === "object" && s !== null &&
+          typeof (s as { id?: unknown }).id === "string"
+      )
+      .map((s) => ({
+        id: s.id,
+        name: typeof s.name === "string" ? s.name : "Untitled",
+        savedAt: typeof s.savedAt === "string" ? s.savedAt : new Date().toISOString(),
+        date: typeof s.date === "string" ? s.date : "",
+        rows: Array.isArray(s.rows)
+          ? (s.rows.filter((r): r is IntakeRow => typeof r === "object" && r !== null && "uid" in (r as object)) as IntakeRow[])
+          : [],
+        pdfTotal: typeof s.pdfTotal === "string" ? s.pdfTotal : "",
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function writeSnapshots(list: IntakeSnapshot[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(SNAPSHOTS_STORAGE_KEY, JSON.stringify(list));
+  } catch {
+    // Quota exceeded — silently skip; operator can prune old snapshots.
+  }
+}
+
 export default function PrintBatchPageWrapper() {
   return (
     <Suspense fallback={<div style={{ padding: 40 }}>Loading...</div>}>
@@ -49,6 +208,71 @@ function PrintBatchPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [riders, setRiders] = useState<Rider[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Manual intake — operator's breakdown of orders received today via
+  // phone / WhatsApp / PDF list. Each row = one category + count, so the
+  // operator can record both the good orders (Inside Dhaka / Outside Dhaka)
+  // and the rejected ones (duplicate, wrong number, out of stock, etc.) in
+  // one place. Persisted per-day in localStorage so a refresh or re-print
+  // keeps the same breakdown.
+  // Stable per-day key — the report date (today or the printed date fallback).
+  // Computed in render so it's always in sync with the report header.
+  const summaryKey = `daily-summary:${todayDateStr || ""}`;
+
+  // Lazy initializer — reads once at mount so we don't setState in an effect.
+  const initialIntake = readIntake(summaryKey);
+  const [intakeRows, setIntakeRows] = useState<IntakeRow[]>(initialIntake.rows);
+  /** Raw "Total Order From PDF" — the total count of orders received today
+   *  from the PDF list. Stored independently from the per-category breakdown
+   *  so the operator can record the demand volume even if they haven't
+   *  categorized everything yet. */
+  const [pdfTotal, setPdfTotal] = useState<string>(initialIntake.pdfTotal);
+
+  // Saved snapshots — named, persistent copies of the intake breakdown.
+  // Independent of the per-day auto-save above; snapshots survive day roll-
+  // over and can be reopened to re-download the PDF.
+  const [snapshots, setSnapshots] = useState<IntakeSnapshot[]>(() => readSnapshots());
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        summaryKey,
+        JSON.stringify({ rows: intakeRows, pdfTotal })
+      );
+    } catch {
+      // Storage full / disabled — silently skip.
+    }
+  }, [summaryKey, intakeRows, pdfTotal]);
+
+  const saveSnapshot = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const snap: IntakeSnapshot = {
+      id: crypto.randomUUID(),
+      name: trimmed,
+      savedAt: new Date().toISOString(),
+      date: todayDateStr || "",
+      rows: intakeRows,
+      pdfTotal,
+    };
+    const next = [snap, ...snapshots].slice(0, 50); // cap to keep storage sane
+    setSnapshots(next);
+    writeSnapshots(next);
+  };
+  const loadSnapshot = (snap: IntakeSnapshot) => {
+    setIntakeRows(
+      snap.rows.length > 0
+        ? snap.rows.map((r) => ({ ...r, uid: crypto.randomUUID() }))
+        : []
+    );
+    setPdfTotal(snap.pdfTotal ?? "");
+  };
+  const deleteSnapshot = (id: string) => {
+    const next = snapshots.filter((s) => s.id !== id);
+    setSnapshots(next);
+    writeSnapshots(next);
+  };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -225,51 +449,14 @@ function PrintBatchPage() {
           --c-ret:    #b45309;  /* dark amber */
           --c-ret-bg: #fef3c7;
 
-          /* ===== Header band (vibrant gradient) ===== */
-          .doc-header {
-            background: linear-gradient(135deg, var(--header-from) 0%, #065f46 35%, var(--header-to) 100%);
-            border-radius: 12px;
-            padding: 16px 20px;
-            margin-bottom: 14px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            color: #fff;
-            box-shadow: 0 4px 12px rgba(6, 78, 59, 0.18);
-            position: relative;
-            overflow: hidden;
-          }
-          .doc-header::after {
-            content: "";
-            position: absolute;
-            right: -40px; top: -40px;
-            width: 160px; height: 160px;
-            border-radius: 50%;
-            background: radial-gradient(circle, rgba(255,255,255,0.12) 0%, transparent 70%);
-            pointer-events: none;
-          }
-          .header-left { display: flex; align-items: center; gap: 14px; position: relative; z-index: 1; }
-          .brand-icon {
-            width: 48px; height: 48px;
-            border-radius: 10px;
-            background: rgba(255,255,255,0.14);
-            border: 2px solid rgba(255,255,255,0.32);
-            display: flex; align-items: center; justify-content: center;
-            backdrop-filter: blur(4px);
-          }
-          .brand-icon-svg { width: 26px; height: 26px; }
-          .header-title { line-height: 1.15; }
-          .header-title h1 { margin: 0; font-size: 24px; font-weight: 800; color: #fff; letter-spacing: -0.4px; }
-          .header-title .bn { font-size: 12px; color: rgba(255,255,255,0.82); margin-top: 3px; font-weight: 600; }
-          .header-right { text-align: right; color: #fff; line-height: 1.2; position: relative; z-index: 1; }
-          .header-right .date { font-size: 15px; font-weight: 700; }
-          .header-right .doc-id { font-size: 10px; color: rgba(255,255,255,0.78); margin-top: 4px; font-weight: 600; letter-spacing: 0.3px; }
-          .header-right .doc-id .dot { color: rgba(255,255,255,0.5); margin: 0 6px; }
+          /* ===== Header band removed — content starts directly with the
+             Order Summary section. The page-level <h1> above carries the
+             business name + report title and date. */
 
           /* ===== Section title with green left bar + bilingual subtitle ===== */
           .section-title {
             display: flex; align-items: baseline; gap: 10px;
-            margin: 14px 0 8px; padding-left: 12px;
+            margin: 4px 0 8px; padding-left: 12px;
             border-left: 4px solid var(--accent);
           }
           .section-title .en { font-size: 14px; font-weight: 800; color: var(--text); letter-spacing: -0.2px; }
@@ -341,6 +528,104 @@ function PrintBatchPage() {
           .legend-dot.conf  { background: #a78bfa; }
           .legend-dot.out   { background: #22d3ee; }
           .legend-dot.new   { background: #60a5fa; }
+
+          /* ===== Manual Intake (operator-entered PDF / phone counts) ===== */
+          .intake-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 10.5px;
+            color: var(--text);
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+            margin: 4px 0 10px;
+          }
+          .intake-table thead th {
+            background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
+            color: #fff;
+            padding: 7px 10px;
+            font-weight: 700;
+            font-size: 10px;
+            letter-spacing: 0.2px;
+            border-right: 1px solid rgba(255,255,255,0.12);
+          }
+          .intake-table thead th:last-child { border-right: 0; }
+          .intake-table thead .bn { display: block; font-size: 8.5px; color: rgba(255,255,255,0.7); font-weight: 500; margin-top: 1px; }
+          .intake-table tbody td {
+            padding: 5px 10px;
+            border-top: 1px solid var(--border);
+            border-right: 1px solid var(--border);
+            font-weight: 600;
+            vertical-align: middle;
+          }
+          .intake-table tbody td:last-child { border-right: 0; }
+          .intake-table tbody tr { position: relative; }
+          .intake-table tbody td:first-child { border-left: 3px solid var(--row-accent, transparent); }
+          .intake-table tbody tr.row-inside-dhaka    { --row-accent: #15803d; background: #f0fdf4; }
+          .intake-table tbody tr.row-outside-dhaka   { --row-accent: #6d28d9; background: #faf5ff; }
+          .intake-table tbody tr.row-duplicate       { --row-accent: #b91c1c; background: #fef2f2; }
+          .intake-table tbody tr.row-wrong-number    { --row-accent: #b45309; background: #fffbeb; }
+          .intake-table tbody tr.row-invalid-address { --row-accent: #b45309; background: #fffbeb; }
+          .intake-table tbody tr.row-out-of-stock    { --row-accent: #b45309; background: #fffbeb; }
+          .intake-table tbody tr.row-cancelled       { --row-accent: #b91c1c; background: #fef2f2; }
+          .intake-table tbody tr.row-other           { --row-accent: #334155; background: #f8fafc; }
+          .intake-table .count {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            font-weight: 800;
+            color: var(--text);
+            font-size: 12px;
+          }
+          .intake-table .note {
+            color: var(--text-secondary);
+            font-size: 10px;
+            font-weight: 500;
+            max-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+          .intake-table .ordernums {
+            color: var(--text);
+            font-size: 10px;
+            font-weight: 700;
+            font-family: ui-monospace, "SF Mono", Menlo, monospace;
+            max-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+          .intake-table tr { page-break-inside: avoid; break-inside: avoid; }
+
+          /* ===== "Total Order From PDF" banner — sits above the breakdown.
+             Matches the brand palette so it reads as part of the same report. */
+          .pdf-total-banner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin: 0 0 8px;
+            padding: 10px 14px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            border-left: 4px solid var(--accent);
+            background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%);
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+          .pdf-total-text { display: flex; flex-direction: column; line-height: 1.15; }
+          .pdf-total-text .en {
+            font-size: 12px; font-weight: 800; color: var(--text); letter-spacing: -0.1px;
+          }
+          .pdf-total-text .bn {
+            font-size: 10px; color: var(--muted); font-weight: 600; margin-top: 2px;
+          }
+          .pdf-total-value {
+            font-size: 22px; font-weight: 800; color: var(--accent);
+            font-variant-numeric: tabular-nums; letter-spacing: -0.5px;
+            line-height: 1;
+          }
 
           /* ===== Orders table — colored status-coded rows ===== */
           .orders-table {
@@ -451,7 +736,6 @@ function PrintBatchPage() {
             }
             .no-print { display: none !important; }
             body { background: #fff !important; }
-            .doc-header { border-radius: 0; box-shadow: none; }
             .kpi .value { font-size: 18px; }
           }
         ` : `
@@ -491,18 +775,39 @@ function PrintBatchPage() {
         }}
       >
         <div>
-          <strong>Batch Print · {orders.length} orders</strong>
+          <strong>Daily Summary · {orders.length} orders</strong>
           {!autoPrint && (
             <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-              Tip: click <b>Save as PDF</b> below, set destination to <i>Save as PDF</i>, keep{" "}
-              <b>Background graphics ON</b> for color, and the file will be named{" "}
-              <code style={codeStyle}>{document.title}</code>.
+              Click <b>Download PDF</b>, pick destination <i>Save as PDF</i>, keep{" "}
+              <b>Background graphics ON</b> for color. File will be named{" "}
+              <code style={codeStyle}>{document.title}</code>. Saved snapshots
+              above can be reopened any time to re-download the same report.
             </div>
           )}
         </div>
+
+        {listView && (
+          // Manual intake — operator's breakdown of orders received today via
+          // phone / WhatsApp / PDF list. Each row = one category + count, so
+          // the operator can record both the good orders (Inside Dhaka /
+          // Outside Dhaka) and the rejected ones (duplicate, wrong number,
+          // out of stock, etc.) in one place. Saved per-day in localStorage.
+          <ManualIntakeEditor
+            rows={intakeRows}
+            onChange={setIntakeRows}
+            systemCount={orders.length}
+            pdfTotal={pdfTotal}
+            onPdfTotalChange={setPdfTotal}
+            snapshots={snapshots}
+            onSaveSnapshot={saveSnapshot}
+            onLoadSnapshot={loadSnapshot}
+            onDeleteSnapshot={deleteSnapshot}
+          />
+        )}
+
         <div style={{ display: "flex", gap: 8 }}>
           <button className="btn btn-primary" onClick={() => window.print()}>
-            {autoPrint ? "Print" : "Save as PDF"}
+            {autoPrint ? "Print" : "Download PDF"}
           </button>
           <button className="btn btn-secondary" onClick={() => window.close()}>
             Close
@@ -533,6 +838,8 @@ function PrintBatchPage() {
             settings={settings}
             printedDateStr={printedDateStr}
             todayDateStr={todayDateStr}
+            intakeRows={intakeRows}
+            pdfTotal={pdfTotal}
           />
         ) : (
           pageChunks.map((chunk, chunkIdx) => {
@@ -789,6 +1096,673 @@ function PrintBatchPage() {
   );
 }
 
+/** On-screen editor for the manual-intake breakdown. Each row = category
+ *  dropdown + count input + remove button. The component renders a compact
+ *  list inside the no-print toolbar and shows derived metric chips (Total,
+ *  Outside Dhaka, To Enter) so the operator can sanity-check before
+ *  printing. Also owns the "Save snapshot" + "Saved snapshots" UI for
+ *  named, persistent copies of the breakdown. */
+function ManualIntakeEditor({
+  rows,
+  onChange,
+  systemCount,
+  pdfTotal,
+  onPdfTotalChange,
+  snapshots,
+  onSaveSnapshot,
+  onLoadSnapshot,
+  onDeleteSnapshot,
+}: {
+  rows: IntakeRow[];
+  onChange: (next: IntakeRow[]) => void;
+  systemCount: number;
+  pdfTotal: string;
+  onPdfTotalChange: (next: string) => void;
+  snapshots: IntakeSnapshot[];
+  onSaveSnapshot: (name: string) => void;
+  onLoadSnapshot: (snap: IntakeSnapshot) => void;
+  onDeleteSnapshot: (id: string) => void;
+}) {
+  const updateRow = (uid: string, patch: Partial<IntakeRow>) => {
+    onChange(rows.map((r) => (r.uid === uid ? { ...r, ...patch } : r)));
+  };
+  const removeRow = (uid: string) => onChange(rows.filter((r) => r.uid !== uid));
+  const addRow = () => {
+    // Pick the first category that isn't already in use so we don't pile up
+    // duplicates by accident. Falls back to the first preset if everything
+    // is already on screen.
+    const used = new Set(rows.map((r) => r.category));
+    const fresh =
+      INTAKE_CATEGORIES.find((c) => !used.has(c.id)) ?? INTAKE_CATEGORIES[0];
+    onChange([
+      ...rows,
+      { uid: crypto.randomUUID(), category: fresh.id, count: "", note: "", orderNumbers: "" },
+    ]);
+  };
+
+  // Derived totals — memoized so typing in inputs doesn't re-compute
+  // unnecessarily.
+  const totals = useMemo(() => {
+    let total = 0;
+    let outsideDhaka = 0;
+    let willEnter = 0;
+    for (const r of rows) {
+      const n = rowCount(r);
+      total += n;
+      if (r.category === "outside_dhaka") outsideDhaka += n;
+      if (INTAKE_CATEGORY_KIND[r.category] === "enter") willEnter += n;
+    }
+    return { total, outsideDhaka, willEnter };
+  }, [rows]);
+  const toEnter = Math.max(0, totals.willEnter - systemCount);
+
+  // Save-snapshot dialog state. When non-null, an inline prompt is rendered.
+  const [snapPrompt, setSnapPrompt] = useState<{ open: boolean; name: string }>({
+    open: false,
+    name: "",
+  });
+  const [snapshotsOpen, setSnapshotsOpen] = useState(false);
+
+  const openSaveDialog = () => {
+    const stamp = new Date().toLocaleString("en-GB", {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    setSnapPrompt({ open: true, name: `Daily Summary — ${stamp}` });
+  };
+  const confirmSave = () => {
+    onSaveSnapshot(snapPrompt.name);
+    setSnapPrompt({ open: false, name: "" });
+  };
+
+  const inputBase: React.CSSProperties = {
+    padding: "4px 8px",
+    background: "var(--bg-card)",
+    border: "1px solid var(--border)",
+    borderRadius: 6,
+    color: "var(--text-primary)",
+    fontSize: 12,
+  };
+  const selectStyle: React.CSSProperties = { ...inputBase, minWidth: 150 };
+  const countStyle: React.CSSProperties = {
+    ...inputBase,
+    width: 72,
+    textAlign: "right",
+    fontVariantNumeric: "tabular-nums",
+  };
+  const noteStyle: React.CSSProperties = { ...inputBase, width: "100%" };
+  const orderNumsStyle: React.CSSProperties = {
+    ...inputBase,
+    width: "100%",
+    fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+    fontSize: 11,
+  };
+
+  return (
+    <div
+      className="manual-intake-bar"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        padding: "8px 10px",
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        background: "var(--bg-elev, rgba(255,255,255,0.02))",
+        flex: "1 1 360px",
+        minWidth: 360,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            color: "var(--text-secondary)",
+            textTransform: "uppercase",
+            letterSpacing: 0.4,
+          }}
+        >
+          Manual Intake
+          <span style={{ marginLeft: 6, fontWeight: 500, color: "var(--text-muted)", textTransform: "none", letterSpacing: 0 }}>
+            — orders received today (PDF / phone / WhatsApp)
+          </span>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={openSaveDialog}
+            disabled={rows.length === 0}
+            title="Save the current breakdown under a name so you can reopen and re-download later"
+            style={{
+              ...inputBase,
+              cursor: rows.length === 0 ? "not-allowed" : "pointer",
+              fontWeight: 700,
+              padding: "4px 12px",
+              color: "var(--text-primary)",
+              background: "var(--bg-card)",
+              border: "1px solid var(--border)",
+              opacity: rows.length === 0 ? 0.55 : 1,
+            }}
+          >
+            Save snapshot
+          </button>
+          <button
+            type="button"
+            onClick={addRow}
+            style={{
+              ...inputBase,
+              cursor: "pointer",
+              fontWeight: 700,
+              padding: "4px 12px",
+              color: "var(--accent-green)",
+              background: "var(--tint-brand-18)",
+              border: "1px solid color-mix(in srgb, var(--color-brand) 40%, transparent)",
+            }}
+          >
+            + Add row
+          </button>
+        </div>
+      </div>
+
+      {/* "Total Order From PDF" — the raw count of orders received from the
+          PDF / phone / WhatsApp list. Kept separate from the per-category
+          breakdown so the operator can record the demand volume even before
+          categorizing every row. Shows up in the printed PDF as its own
+          section header above the breakdown table. */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "8px 12px",
+          border: "1px solid color-mix(in srgb, var(--color-brand) 40%, transparent)",
+          borderRadius: 8,
+          background: "var(--tint-brand-12)",
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: 12,
+              fontWeight: 800,
+              color: "var(--text-primary)",
+              letterSpacing: 0.2,
+            }}
+          >
+            Total Order From PDF
+          </div>
+          <div
+            style={{
+              fontSize: 10,
+              color: "var(--text-muted)",
+              marginTop: 1,
+              fontWeight: 600,
+            }}
+          >
+            মোট পিডিএফ অর্ডার · raw count from the list
+          </div>
+        </div>
+        <input
+          type="number"
+          inputMode="numeric"
+          min={0}
+          aria-label="Total Order From PDF"
+          value={pdfTotal}
+          onChange={(e) =>
+            onPdfTotalChange(e.target.value.replace(/[^\d]/g, ""))
+          }
+          placeholder="0"
+          style={{
+            ...inputBase,
+            width: 110,
+            padding: "6px 10px",
+            textAlign: "right",
+            fontVariantNumeric: "tabular-nums",
+            fontSize: 18,
+            fontWeight: 800,
+            color: "var(--accent-green)",
+            background: "var(--bg-card)",
+            border: "1px solid color-mix(in srgb, var(--color-brand) 50%, transparent)",
+          }}
+        />
+      </div>
+
+      {/* Inline save-snapshot prompt — name + Save / Cancel. */}
+      {snapPrompt.open && (
+        <div
+          style={{
+            display: "flex",
+            gap: 6,
+            alignItems: "center",
+            padding: 6,
+            border: "1px solid color-mix(in srgb, var(--color-brand) 40%, transparent)",
+            background: "var(--tint-brand-12)",
+            borderRadius: 6,
+          }}
+        >
+          <span style={{ fontSize: 12, color: "var(--text-secondary)", flexShrink: 0 }}>
+            Snapshot name:
+          </span>
+          <input
+            type="text"
+            value={snapPrompt.name}
+            onChange={(e) => setSnapPrompt((p) => ({ ...p, name: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") confirmSave();
+              if (e.key === "Escape") setSnapPrompt({ open: false, name: "" });
+            }}
+            autoFocus
+            style={{ ...inputBase, flex: 1 }}
+          />
+          <button
+            type="button"
+            onClick={confirmSave}
+            disabled={!snapPrompt.name.trim()}
+            style={{
+              ...inputBase,
+              cursor: snapPrompt.name.trim() ? "pointer" : "not-allowed",
+              fontWeight: 700,
+              padding: "4px 12px",
+              color: "var(--accent-green)",
+              background: "var(--tint-brand-18)",
+              border: "1px solid color-mix(in srgb, var(--color-brand) 40%, transparent)",
+              opacity: snapPrompt.name.trim() ? 1 : 0.55,
+            }}
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            onClick={() => setSnapPrompt({ open: false, name: "" })}
+            style={{
+              ...inputBase,
+              cursor: "pointer",
+              padding: "4px 10px",
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Column headers (subtle, just to label each row's sub-inputs) */}
+      {rows.length > 0 && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 80px",
+            gap: 6,
+            fontSize: 10,
+            fontWeight: 700,
+            color: "var(--text-muted)",
+            textTransform: "uppercase",
+            letterSpacing: 0.4,
+            paddingLeft: 2,
+          }}
+        >
+          <span>Category · Note</span>
+          <span style={{ textAlign: "right" }}>Count</span>
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {rows.length === 0 && (
+          <div
+            style={{
+              fontSize: 12,
+              color: "var(--text-muted)",
+              padding: "8px 0",
+              fontStyle: "italic",
+            }}
+          >
+            No rows yet — click <b>+ Add row</b> to start the breakdown.
+          </div>
+        )}
+        {rows.map((r) => (
+          // Two stacked sub-rows per intake entry:
+          //   line 1: category dropdown · count · ×
+          //   line 2: order numbers · note
+          // Keeps each input readable while letting the operator paste a long
+          // list of order numbers into one row without breaking layout.
+          <div
+            key={r.uid}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 4,
+              padding: 6,
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              background: "var(--bg-card)",
+            }}
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 80px 28px",
+                gap: 6,
+                alignItems: "center",
+              }}
+            >
+              <select
+                aria-label="Category"
+                value={r.category}
+                onChange={(e) =>
+                  updateRow(r.uid, { category: e.target.value as IntakeCategory })
+                }
+                style={selectStyle}
+              >
+                {INTAKE_CATEGORIES.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                aria-label="Count"
+                value={r.count}
+                onChange={(e) =>
+                  updateRow(r.uid, { count: e.target.value.replace(/[^\d]/g, "") })
+                }
+                placeholder="0"
+                style={countStyle}
+              />
+              <button
+                type="button"
+                onClick={() => removeRow(r.uid)}
+                aria-label="Remove row"
+                title="Remove row"
+                style={{
+                  width: 28,
+                  height: 28,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "transparent",
+                  border: "1px solid var(--border)",
+                  borderRadius: 6,
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                  fontSize: 16,
+                  lineHeight: 1,
+                }}
+              >
+                ×
+              </button>
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1.4fr 1fr",
+                gap: 6,
+              }}
+            >
+              <input
+                type="text"
+                aria-label="Order numbers"
+                value={r.orderNumbers ?? ""}
+                onChange={(e) => updateRow(r.uid, { orderNumbers: e.target.value })}
+                placeholder="Order #s (comma- or space-separated)"
+                style={orderNumsStyle}
+              />
+              <input
+                type="text"
+                aria-label="Note"
+                value={r.note ?? ""}
+                onChange={(e) => updateRow(r.uid, { note: e.target.value })}
+                placeholder={
+                  r.category === "other" ? "What happened?" : "Note (optional)"
+                }
+                style={noteStyle}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Derived metric chips */}
+      {rows.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            gap: 6,
+            flexWrap: "wrap",
+            paddingTop: 4,
+            borderTop: "1px dashed var(--border)",
+          }}
+        >
+          <Chip label="Total received" value={totals.total} tone="slate" />
+          <Chip
+            label="Outside Dhaka"
+            value={totals.outsideDhaka}
+            tone="violet"
+          />
+          <Chip
+            label="To enter"
+            value={toEnter}
+            tone={toEnter > 0 ? "amber" : "green"}
+            title={
+              toEnter > 0
+                ? `${totals.willEnter - toEnter} of ${totals.willEnter} already entered (${systemCount} in system)`
+                : `All ${totals.willEnter} accepted orders are in the system`
+            }
+          />
+        </div>
+      )}
+
+      {/* Saved snapshots panel — collapsed by default so the editor stays
+          compact for daily use. Operators click to expand when they want to
+          reopen a previous breakdown. */}
+      <div
+        style={{
+          borderTop: snapshots.length > 0 ? "1px dashed var(--border)" : "none",
+          paddingTop: snapshots.length > 0 ? 6 : 0,
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setSnapshotsOpen((v) => !v)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            width: "100%",
+            padding: "4px 6px",
+            background: "transparent",
+            border: 0,
+            cursor: "pointer",
+            color: "var(--text-secondary)",
+            fontSize: 11,
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: 0.4,
+          }}
+        >
+          <span>Saved snapshots ({snapshots.length})</span>
+          <span style={{ fontSize: 13, lineHeight: 1 }}>
+            {snapshotsOpen ? "−" : "+"}
+          </span>
+        </button>
+        {snapshotsOpen && snapshots.length === 0 && (
+          <div
+            style={{
+              fontSize: 12,
+              color: "var(--text-muted)",
+              padding: "4px 6px",
+              fontStyle: "italic",
+            }}
+          >
+            No snapshots yet. Use <b>Save snapshot</b> to keep the current
+            breakdown for later.
+          </div>
+        )}
+        {snapshotsOpen && snapshots.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 4,
+              marginTop: 4,
+              maxHeight: 220,
+              overflowY: "auto",
+            }}
+          >
+            {snapshots.map((s) => {
+              const stamp = new Date(s.savedAt).toLocaleString("en-GB", {
+                day: "2-digit",
+                month: "short",
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: false,
+              });
+              const filledRows = s.rows.filter((r) => rowCount(r) > 0).length;
+              return (
+                <div
+                  key={s.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "4px 6px",
+                    border: "1px solid var(--border)",
+                    borderRadius: 6,
+                    background: "var(--bg-card)",
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: "var(--text-primary)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={s.name}
+                    >
+                      {s.name}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: "var(--text-muted)",
+                        marginTop: 1,
+                      }}
+                    >
+                      {stamp}
+                      {s.date && ` · for ${s.date}`}
+                      {" · "}
+                      {filledRows} row{filledRows === 1 ? "" : "s"}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onLoadSnapshot(s)}
+                    title="Load this snapshot into the editor"
+                    style={{
+                      ...inputBase,
+                      cursor: "pointer",
+                      fontWeight: 700,
+                      padding: "3px 10px",
+                      color: "var(--accent-green)",
+                      background: "var(--tint-brand-18)",
+                      border: "1px solid color-mix(in srgb, var(--color-brand) 40%, transparent)",
+                    }}
+                  >
+                    Open
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirm(`Delete snapshot "${s.name}"?`)) onDeleteSnapshot(s.id);
+                    }}
+                    aria-label={`Delete snapshot ${s.name}`}
+                    title="Delete snapshot"
+                    style={{
+                      width: 28,
+                      height: 28,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background: "transparent",
+                      border: "1px solid var(--border)",
+                      borderRadius: 6,
+                      color: "var(--text-muted)",
+                      cursor: "pointer",
+                      fontSize: 16,
+                      lineHeight: 1,
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Compact metric chip used in the manual-intake toolbar. */
+function Chip({
+  label,
+  value,
+  tone,
+  title,
+}: {
+  label: string;
+  value: number;
+  tone: "slate" | "violet" | "amber" | "green";
+  title?: string;
+}) {
+  const palette: Record<string, { color: string; bg: string; border: string }> = {
+    slate:  { color: "var(--text-secondary)", bg: "var(--bg-hover)",          border: "var(--border)" },
+    violet: { color: "#6d28d9",               bg: "#faf5ff",                   border: "#ddd6fe" },
+    amber:  { color: "var(--accent-amber)",    bg: "color-mix(in srgb, var(--color-warning) 18%, transparent)", border: "color-mix(in srgb, var(--color-warning) 50%, transparent)" },
+    green:  { color: "var(--accent-green)",    bg: "color-mix(in srgb, var(--color-success) 18%, transparent)", border: "color-mix(in srgb, var(--color-success) 50%, transparent)" },
+  };
+  const p = palette[tone];
+  return (
+    <span
+      title={title}
+      style={{
+        display: "inline-flex",
+        alignItems: "baseline",
+        gap: 6,
+        padding: "3px 10px",
+        borderRadius: 999,
+        background: p.bg,
+        color: p.color,
+        border: `1px solid ${p.border}`,
+        fontSize: 11,
+        fontWeight: 700,
+      }}
+    >
+      <span style={{ fontWeight: 600, opacity: 0.85 }}>{label}</span>
+      <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 13 }}>{value}</span>
+    </span>
+  );
+}
+
 /** Professional single-page report — used for "Download Today" / "Download PDF".
  *  Branded header, summary KPI cards, today's status row, dense orders
  *  table, payment/cluster breakdown, signature footer. Designed to fit
@@ -800,6 +1774,8 @@ function ListViewTable({
   settings,
   printedDateStr,
   todayDateStr,
+  intakeRows,
+  pdfTotal,
 }: {
   orders: Order[];
   mainIds: number[];
@@ -807,6 +1783,10 @@ function ListViewTable({
   settings: Settings | null;
   printedDateStr: string;
   todayDateStr: string;
+  /** Manual-intake breakdown — see ManualIntakeEditor for the schema. */
+  intakeRows: IntakeRow[];
+  /** Raw "Total Order From PDF" — operator-entered string (may be empty). */
+  pdfTotal: string;
 }) {
   // The main orders table = only the orders whose ids appear in mainIds
   // (i.e. orders delivered today). Other orders in `orders` were fetched
@@ -880,33 +1860,13 @@ const cancelledTotal = tableOrders
     return c;
   }, [orders, todayDateStr]);
 
-  const docId = `RPT-${printedDateStr.replace(/-/g, "")}-${tableOrders.length}`;
   const businessName = settings?.businessName || "";
 
   return (
     <div>
-      {/* ===== Header (matches reference: dark teal band) ===== */}
-      <div className="doc-header">
-        <div className="header-left">
-          <div className="brand-icon" aria-hidden>
-            <svg className="brand-icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M3 7.5L12 3l9 4.5v9L12 21l-9-4.5v-9z" stroke="#fff" strokeWidth="1.6" strokeLinejoin="round" />
-              <path d="M3 7.5L12 12l9-4.5M12 12v9" stroke="#fff" strokeWidth="1.6" strokeLinejoin="round" />
-              <path d="M7.5 5.25L16.5 9.75" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" />
-            </svg>
-          </div>
-          <div className="header-title">
-            <h1>{businessName}</h1>
-            <div className="bn">দৈনিক অর্ডার সারাংশ · Daily Orders Summary · All Statuses</div>
-          </div>
-        </div>
-        <div className="header-right">
-          <div className="date">{prettyDate(printedDateStr)}</div>
-          <div className="doc-id">
-            চালান কোড <span className="dot">•</span> #{docId}
-          </div>
-        </div>
-      </div>
+      {/* Header band removed — content begins directly with the Order Summary
+          section. The page-level <h1> above still shows business name +
+          report title and date. */}
 
       {/* ===== Section: Order Summary ===== */}
       <div className="section-title">
@@ -1007,6 +1967,86 @@ const cancelledTotal = tableOrders
         );
       })()}
 
+      {/* ===== Intake breakdown (PDF / phone orders, operator-entered) =====
+         No section title on the PDF — the table is self-explanatory. */}
+      {(() => {
+        // Skip the whole block when there's nothing to show — empty input rows
+        // shouldn't add whitespace to the printed report.
+        const hasAnyData = intakeRows.some(
+          (r) =>
+            rowCount(r) > 0 ||
+            (r.note ?? "").trim() !== "" ||
+            (r.orderNumbers ?? "").trim() !== ""
+        );
+        if (!hasAnyData && !pdfTotal.trim()) return null;
+        return (
+          <>
+            {/* "Total Order From PDF" section — printed as a single bold line
+                above the breakdown table. Renders only when the operator has
+                typed a value so the report never shows a stray 0. */}
+            {pdfTotal.trim() !== "" && (
+              <div className="pdf-total-banner">
+                <div className="pdf-total-text">
+                  <span className="en">Total Order From PDF</span>
+                  <span className="bn">মোট পিডিএফ অর্ডার</span>
+                </div>
+                <div className="pdf-total-value">{Number(pdfTotal) || 0}</div>
+              </div>
+            )}
+
+            {hasAnyData && (
+              <table className="intake-table">
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: "left" }}>Category<span className="bn">ধরন</span></th>
+                    <th style={{ textAlign: "right", width: 60 }}>Count<span className="bn">সংখ্যা</span></th>
+                    <th style={{ textAlign: "left" }}>Order #s<span className="bn">অর্ডার নং</span></th>
+                    <th style={{ textAlign: "left" }}>Note<span className="bn">নোট</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {intakeRows.map((r) => {
+                    const nums = (r.orderNumbers ?? "")
+                      .split(/[\s,]+/)
+                      .map((s) => s.trim())
+                      .filter(Boolean);
+                    const noteText = (r.note ?? "").trim();
+                    return (
+                      <tr key={r.uid} className={`row-${r.category.replace("_", "-")}`}>
+                        <td>
+                          <div style={{ fontWeight: 700 }}>{INTAKE_CATEGORY_LABEL[r.category]}</div>
+                          <div className="bn" style={{ fontSize: 9, color: "var(--muted)", fontWeight: 600, marginTop: 1 }}>
+                            {INTAKE_CATEGORY_LABEL_BN[r.category]}
+                          </div>
+                        </td>
+                        <td className="count">{r.count || "—"}</td>
+                        <td className="ordernums" title={nums.join(", ") || undefined}>
+                          {nums.length === 0 ? (
+                            <span style={{ color: "var(--muted)" }}>—</span>
+                          ) : nums.length <= 2 ? (
+                            nums.join(", ")
+                          ) : (
+                            <>
+                              <span style={{ fontWeight: 700 }}>{nums.slice(0, 2).join(", ")}</span>
+                              <span style={{ color: "var(--text-muted)", fontWeight: 600 }}>
+                                {" "}+{nums.length - 2} more
+                              </span>
+                            </>
+                          )}
+                        </td>
+                        <td className="note" title={noteText || undefined}>
+                          {noteText || <span style={{ color: "var(--muted)" }}>—</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </>
+        );
+      })()}
+
       {/* ===== Section: Order Details ===== */}
       <div className="section-title">
         <span className="en">Order Details</span>
@@ -1031,10 +2071,10 @@ const cancelledTotal = tableOrders
             <th style={{ width: 110 }}>
               Rider<span className="bn">রাইডার</span>
             </th>
-            <th style={{ width: 110, textAlign: "right" }}>
+            <th style={{ width: 90, textAlign: "right" }}>
               Amount<span className="bn">পরিমাণ (৳)</span>
             </th>
-            <th style={{ width: 110 }}>
+            <th style={{ width: 85 }}>
               Status<span className="bn">অবস্থান</span>
             </th>
           </tr>
