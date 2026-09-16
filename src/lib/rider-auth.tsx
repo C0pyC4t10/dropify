@@ -42,13 +42,23 @@ function readStored(): { accessToken: string; session: RiderSession } | null {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const [state, setState] = useState<AuthState>(() => {
+  // Start as "loading" on both server and first client render so hydration
+  // matches. The localStorage read happens in an effect below — the UI shows
+  // a brief "Loading…" state, then transitions to authed/guest.
+  const [state, setState] = useState<AuthState>({
+    status: "loading",
+    accessToken: null,
+    session: null,
+  });
+
+  useEffect(() => {
     const stored = readStored();
     if (stored) {
-      return { status: "authed", accessToken: stored.accessToken, session: stored.session };
+      setState({ status: "authed", accessToken: stored.accessToken, session: stored.session });
+    } else {
+      setState({ status: "guest", accessToken: null, session: null });
     }
-    return { status: "guest", accessToken: null, session: null };
-  });
+  }, []);
 
   const persist = useCallback((accessToken: string, session: RiderSession) => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ accessToken, session })); } catch {}

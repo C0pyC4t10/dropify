@@ -28,27 +28,29 @@ export function RiderAvatar({
   size?: number;
 }) {
   const { accessToken, session } = useAuth();
-  const [state, setState] = useState<AvatarState>(() => ({
-    url: null,
-    initials: initialsOf(name),
-  }));
+  // IMPORTANT: initial state MUST be the same on server and client or React
+  // throws a hydration mismatch. The session comes from localStorage and is
+  // only available client-side, so we start with empty initials and fetch
+  // /api/rider/me in an effect to populate it after mount.
+  const [state, setState] = useState<AvatarState>({ url: null, initials: "" });
 
   // Re-fetch when the rider id changes (login → new session).
   useEffect(() => {
     let cancelled = false;
+    const localName = session?.riderName ?? name;
     if (!accessToken || !riderId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setState({ url: null, initials: initialsOf(name) });
+      setState({ url: null, initials: initialsOf(localName) });
       return;
     }
     riderGetJson<{ rider: { avatarUrl: string | null } }>("/api/rider/me", accessToken)
       .then((res) => {
         if (cancelled) return;
-        setState({ url: res.rider.avatarUrl, initials: initialsOf(session?.riderName ?? name) });
+        setState({ url: res.rider.avatarUrl, initials: initialsOf(localName) });
       })
       .catch(() => {
         if (cancelled) return;
-        setState({ url: null, initials: initialsOf(session?.riderName ?? name) });
+        setState({ url: null, initials: initialsOf(localName) });
       });
     return () => {
       cancelled = true;
