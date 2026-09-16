@@ -14,11 +14,13 @@ import {
   Clock,
   HelpCircle,
   KeyRound,
+  Loader2,
   LogOut,
   Phone,
   Shield,
   Trash2,
   User,
+  X,
 } from "lucide-react";
 
 interface MeResponse {
@@ -32,6 +34,21 @@ interface MeResponse {
     lastLoginAt: string;
     avatarUrl: string | null;
   };
+}
+
+type UploadPhase = "idle" | "resizing" | "uploading" | "done";
+
+interface PreviewState {
+  url: string;            // blob URL of the ORIGINAL image (for preview)
+  originalBytes: number;
+  width: number;
+  height: number;
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function formatLastLogin(iso: string): string {
@@ -78,8 +95,10 @@ export default function RiderProfilePage() {
   const [me, setMe] = useState<MeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [avatarTick, setAvatarTick] = useState(0);
-  const [uploading, setUploading] = useState(false);
+  const [uploadPhase, setUploadPhase] = useState<UploadPhase>("idle");
   const [removing, setRemoving] = useState(false);
+  const [preview, setPreview] = useState<PreviewState | null>(null);
+  const [resizedBytes, setResizedBytes] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -101,6 +120,20 @@ export default function RiderProfilePage() {
     return () => { cancelled = true; };
   }, [accessToken]);
 
+  // Release any object URL when the preview unmounts.
+  useEffect(() => {
+    return () => {
+      if (preview?.url) URL.revokeObjectURL(preview.url);
+    };
+  }, [preview]);
+
+  function resetUpload() {
+    if (preview?.url) URL.revokeObjectURL(preview.url);
+    setPreview(null);
+    setResizedBytes(null);
+    setUploadPhase("idle");
+  }
+
   async function onSignOut() {
     await logout();
     router.replace("/rider/login");
@@ -110,10 +143,38 @@ export default function RiderProfilePage() {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-selecting the same file
     if (!file || !accessToken) return;
-    setUploading(true);
     setError(null);
+    setUploadPhase("resizing");
+    setResizedBytes(null);
+
+    // Build an immediate preview of the original image.
+    const previewUrl = URL.createObjectURL(file);
+    let dims = { width: 0, height: 0 };
     try {
+      const probe = new Image();
+      probe.src = previewUrl;
+      await new Promise<void>((resolve) => {
+        probe.onload = () => {
+          dims = { width: probe.naturalWidth, height: probe.naturalHeight };
+          resolve();
+        };
+        probe.onerror = () => resolve();
+      });
+    } catch { /* ignore */ }
+
+    setPreview({
+      url: previewUrl,
+      originalBytes: file.size,
+      width: dims.width,
+      height: dims.height,
+    });
+
+    try {
+      // Resize on the client. downscaleImage returns 1280px max JPEG q0.7.
       const ds = await downscaleImage(file);
+      setResizedBytes(ds.bytes);
+
+      setUploadPhase("uploading");
       const form = new FormData();
       form.append("photo", new File([ds.blob], "avatar.jpg", { type: "image/jpeg" }));
       const res = await riderFetch("/api/rider/me/avatar", {
@@ -124,7 +185,7 @@ export default function RiderProfilePage() {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(json.error || `Upload failed (${res.status}).`);
-        setUploading(false);
+        setUploadPhase("idle");
         return;
       }
       setMe((prev) => prev ? {
@@ -132,10 +193,15 @@ export default function RiderProfilePage() {
         rider: { ...prev.rider, avatarUrl: json.avatarUrl ?? prev.rider.avatarUrl },
       } : prev);
       setAvatarTick((t) => t + 1);
+      setUploadPhase("done");
+      // Hold the success state briefly so the user can read the size delta,
+      // then clear the preview to reveal the new saved avatar.
+      setTimeout(() => {
+        resetUpload();
+      }, 1800);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed.");
-    } finally {
-      setUploading(false);
+      setUploadPhase("idle");
     }
   }
 
@@ -166,6 +232,7 @@ export default function RiderProfilePage() {
   }
 
   const r = me?.rider;
+  const isWorking = uploadPhase === "resizing" || uploadPhase === "uploading";
 
   return (
     <RiderAppShell title="Your profile">
@@ -196,7 +263,7 @@ export default function RiderProfilePage() {
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
-            disabled={uploading}
+            disabled={isWorking}
             aria-label="Change profile photo"
             style={{
               position: "absolute",
@@ -211,8 +278,8 @@ export default function RiderProfilePage() {
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
-              cursor: uploading ? "wait" : "pointer",
-              opacity: uploading ? 0.7 : 1,
+              cursor: isWorking ? "wait" : "pointer",
+              opacity: isWorking ? 0.7 : 1,
             }}
           >
             <Camera size={14} aria-hidden />
@@ -245,7 +312,7 @@ export default function RiderProfilePage() {
               {statusLabel(r?.accountStatus ?? "")}
             </span>
           </div>
-          {r?.avatarUrl && (
+          {r?.avatarUrl && !preview && (
             <button
               type="button"
               onClick={onRemovePhoto}
@@ -269,6 +336,97 @@ export default function RiderProfilePage() {
           )}
         </div>
       </div>
+
+      {preview && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            background: "var(--bg-elevated)",
+            border: "1px solid var(--color-border)",
+            borderRadius: 14,
+            padding: 16,
+            marginBottom: 16,
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={preview.url}
+            alt="Selected photo preview"
+            width={72}
+            height={72}
+            style={{
+              width: 72,
+              height: 72,
+              borderRadius: 10,
+              objectFit: "cover",
+              background: "var(--color-bg-hover)",
+              flexShrink: 0,
+            }}
+          />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700 }}>
+              {isWorking && (
+                <Loader2
+                  size={16}
+                  aria-hidden
+                  className="dropify-spin"
+                  style={{ color: "var(--color-brand)" }}
+                />
+              )}
+              <span>
+                {uploadPhase === "resizing" && "Resizing photo…"}
+                {uploadPhase === "uploading" && "Uploading…"}
+                {uploadPhase === "done" && "Photo updated"}
+              </span>
+            </div>
+            <div style={{ fontSize: 12, color: "var(--color-text-muted)", marginTop: 4 }}>
+              {preview.width > 0 && preview.height > 0 && (
+                <span>{preview.width}×{preview.height} · </span>
+              )}
+              <span>{formatBytes(preview.originalBytes)}</span>
+              {resizedBytes !== null && resizedBytes !== preview.originalBytes && (
+                <>
+                  <span style={{ color: "var(--color-text-secondary)" }}> → </span>
+                  <span style={{ color: "var(--color-success)", fontWeight: 600 }}>
+                    {formatBytes(resizedBytes)}
+                  </span>
+                </>
+              )}
+            </div>
+            {uploadPhase === "done" && (
+              <div style={{ fontSize: 11, color: "var(--color-text-muted)", marginTop: 2 }}>
+                Saved. Showing the new avatar below.
+              </div>
+            )}
+          </div>
+          {uploadPhase !== "done" && !isWorking && (
+            <button
+              type="button"
+              onClick={resetUpload}
+              aria-label="Cancel upload"
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 8,
+                background: "var(--color-bg-hover)",
+                border: "1px solid var(--color-border)",
+                color: "var(--color-text)",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              <X size={16} aria-hidden />
+            </button>
+          )}
+        </div>
+      )}
 
       <Section title="Your details">
         <DetailRow icon={<Phone size={16} aria-hidden />} label="Phone" value={r?.phone ?? session?.phone ?? "—"} />
