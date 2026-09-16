@@ -4,14 +4,15 @@ import { Beef, Phone, Building2 } from "lucide-react";
 import Link from "next/link";
 import { useActiveCompany } from "@/lib/active-company";
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import type { Settings } from "@/lib/types";
 
 interface FooterProps {
   className?: string;
 }
 
-export function Footer({ className = "" }: FooterProps) {
-  const year = new Date().getFullYear();
+export function Footer({ className = "" }: { className?: string }) {
+  const pathname = usePathname();
   const { activeCompany, activeCompanyId } = useActiveCompany();
   const [settings, setSettings] = useState<Settings | null>(null);
 
@@ -32,6 +33,9 @@ export function Footer({ className = "" }: FooterProps) {
     };
   }, [activeCompanyId]);
 
+  // Rider PWA renders its own footer-free chrome — drop the operator footer.
+  if (pathname?.startsWith("/rider")) return null;
+  const year = new Date().getFullYear();
   const companyName = settings?.businessName ?? activeCompany?.name ?? "Dropify";
   const phone = settings?.phone || "";
   const isMeat = activeCompany?.slug === "meat";

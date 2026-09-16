@@ -158,6 +158,11 @@ export function Header({ className = "" }: { className?: string }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
 
+  // The rider PWA renders its own sticky header + bottom tab bar via
+  // <RiderAppShell>. Hide the admin chrome on /rider/* so a rider on
+  // their phone doesn't see Dashboard / Routes / Stock / etc.
+  if (pathname?.startsWith("/rider")) return null;
+
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
     return pathname.startsWith(href);
