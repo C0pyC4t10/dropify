@@ -6,7 +6,9 @@ import { Footer } from "@/components/footer";
 
 export function ChromeLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isRider = pathname?.startsWith("/rider") ?? false;
+  // Match the rider PWA only — `/rider`, `/rider/login`, `/rider/orders`, …
+  // NOT the admin riders list at `/riders` which collides on the prefix.
+  const isRider = pathname === "/rider" || (pathname?.startsWith("/rider/") ?? false);
   if (isRider) return <>{children}</>;
   return (
     <>

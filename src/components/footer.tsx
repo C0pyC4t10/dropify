@@ -34,7 +34,9 @@ export function Footer({ className = "" }: { className?: string }) {
   }, [activeCompanyId]);
 
   // Rider PWA renders its own footer-free chrome — drop the operator footer.
-  if (pathname?.startsWith("/rider")) return null;
+  // Important: match `/rider` and `/rider/...` only — NOT `/riders`
+  // (admin riders list) which collides on the prefix.
+  if (pathname === "/rider" || pathname?.startsWith("/rider/")) return null;
   const year = new Date().getFullYear();
   const companyName = settings?.businessName ?? activeCompany?.name ?? "Dropify";
   const phone = settings?.phone || "";

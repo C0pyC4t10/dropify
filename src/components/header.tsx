@@ -161,7 +161,9 @@ export function Header({ className = "" }: { className?: string }) {
   // The rider PWA renders its own sticky header + bottom tab bar via
   // <RiderAppShell>. Hide the admin chrome on /rider/* so a rider on
   // their phone doesn't see Dashboard / Routes / Stock / etc.
-  if (pathname?.startsWith("/rider")) return null;
+  // Important: match `/rider` and `/rider/...` only — NOT `/riders`
+  // (admin riders list) which collides on the prefix.
+  if (pathname === "/rider" || pathname?.startsWith("/rider/")) return null;
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
