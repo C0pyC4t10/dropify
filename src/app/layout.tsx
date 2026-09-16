@@ -41,7 +41,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body>
-        <Script id="theme-bootstrap" strategy="beforeInteractive">{themeBootstrap}</Script>
+        <Script id="theme-bootstrap" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
         <ThemeProvider>
           <ActiveCompanyProvider>
             <ChromeLayout>{children}</ChromeLayout>
