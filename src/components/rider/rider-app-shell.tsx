@@ -240,23 +240,27 @@ function MenuItem({
   onClick: () => void;
   danger?: boolean;
 }) {
+  const [hover, setHover] = useState(false);
   return (
     <button
       type="button"
       role="menuitem"
       onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
       style={{
         display: "flex",
         alignItems: "center",
         gap: 10,
         padding: "10px 12px",
         minHeight: 44,
-        background: "transparent",
+        background: hover ? "var(--color-bg-hover)" : "var(--bg-elevated)",
         border: "none",
         borderRadius: 8,
         textAlign: "left",
         cursor: "pointer",
         fontSize: 14,
+        fontWeight: 600,
         color: danger ? "var(--color-danger)" : "var(--color-text)",
       }}
     >
