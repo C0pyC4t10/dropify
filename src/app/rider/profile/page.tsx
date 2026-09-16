@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/rider-auth";
-import { riderGetJson } from "@/lib/rider-api";
+import { riderFetch, riderGetJson } from "@/lib/rider-api";
 import { RiderAppShell } from "@/components/rider/rider-app-shell";
+import { RiderAvatar } from "@/components/rider/rider-avatar";
+import { downscaleImage } from "@/lib/image-downscale";
 import {
   Bike,
+  Camera,
   ChevronRight,
   Clock,
   HelpCircle,
@@ -14,6 +17,7 @@ import {
   LogOut,
   Phone,
   Shield,
+  Trash2,
   User,
 } from "lucide-react";
 
@@ -26,16 +30,8 @@ interface MeResponse {
     homeCluster: string | null;
     accountStatus: string;
     lastLoginAt: string;
+    avatarUrl: string | null;
   };
-}
-
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
 }
 
 function formatLastLogin(iso: string): string {
@@ -81,6 +77,10 @@ export default function RiderProfilePage() {
   const { accessToken, session, status, logout } = useAuth();
   const [me, setMe] = useState<MeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [avatarTick, setAvatarTick] = useState(0);
+  const [uploading, setUploading] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (status === "guest") router.replace("/rider/login");
@@ -106,6 +106,65 @@ export default function RiderProfilePage() {
     router.replace("/rider/login");
   }
 
+  async function onPickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file
+    if (!file || !accessToken) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const ds = await downscaleImage(file);
+      const form = new FormData();
+      form.append("photo", new File([ds.blob], "avatar.jpg", { type: "image/jpeg" }));
+      const res = await riderFetch("/api/rider/me/avatar", {
+        method: "POST",
+        body: form,
+        accessToken,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error || `Upload failed (${res.status}).`);
+        setUploading(false);
+        return;
+      }
+      setMe((prev) => prev ? {
+        ...prev,
+        rider: { ...prev.rider, avatarUrl: json.avatarUrl ?? prev.rider.avatarUrl },
+      } : prev);
+      setAvatarTick((t) => t + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function onRemovePhoto() {
+    if (!accessToken || removing) return;
+    setRemoving(true);
+    setError(null);
+    try {
+      const res = await riderFetch("/api/rider/me/avatar", {
+        method: "DELETE",
+        accessToken,
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setError(j.error || `Remove failed (${res.status}).`);
+        return;
+      }
+      setMe((prev) => prev ? {
+        ...prev,
+        rider: { ...prev.rider, avatarUrl: null },
+      } : prev);
+      setAvatarTick((t) => t + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Remove failed.");
+    } finally {
+      setRemoving(false);
+    }
+  }
+
   const r = me?.rider;
 
   return (
@@ -124,23 +183,48 @@ export default function RiderProfilePage() {
         gap: 16,
         marginBottom: 16,
       }}>
-        <div
-          aria-hidden
-          style={{
-            width: 64,
-            height: 64,
-            borderRadius: "50%",
-            background: "var(--tint-brand-25)",
-            color: "var(--color-brand)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 24,
-            fontWeight: 700,
-            flexShrink: 0,
-          }}
-        >
-          {initials(r?.name ?? session?.riderName ?? "?")}
+        <div style={{ position: "relative", flexShrink: 0 }}>
+          {/* key=avatarTick forces re-mount on upload/remove so the cached
+              <img> refetches the new URL. */}
+          <span key={avatarTick}>
+            <RiderAvatar
+              riderId={r?.id ?? session?.riderId ?? null}
+              name={r?.name ?? session?.riderName ?? ""}
+              size={72}
+            />
+          </span>
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            aria-label="Change profile photo"
+            style={{
+              position: "absolute",
+              right: -2,
+              bottom: -2,
+              width: 30,
+              height: 30,
+              borderRadius: "50%",
+              background: "var(--color-brand)",
+              color: "#fff",
+              border: "2px solid var(--bg-elevated)",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: uploading ? "wait" : "pointer",
+              opacity: uploading ? 0.7 : 1,
+            }}
+          >
+            <Camera size={14} aria-hidden />
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            onChange={onPickPhoto}
+            hidden
+            aria-hidden
+          />
         </div>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.2 }}>
@@ -161,6 +245,28 @@ export default function RiderProfilePage() {
               {statusLabel(r?.accountStatus ?? "")}
             </span>
           </div>
+          {r?.avatarUrl && (
+            <button
+              type="button"
+              onClick={onRemovePhoto}
+              disabled={removing}
+              style={{
+                marginTop: 8,
+                padding: "4px 8px",
+                background: "transparent",
+                border: "none",
+                color: "var(--color-danger)",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: removing ? "wait" : "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              <Trash2 size={12} aria-hidden /> Remove photo
+            </button>
+          )}
         </div>
       </div>
 

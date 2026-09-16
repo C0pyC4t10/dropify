@@ -1,7 +1,10 @@
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
+import bcrypt from "bcryptjs";
 import Database from "better-sqlite3";
 import { normalizePhone, phonesMatch } from "./phone";
+import { generateTrackingCode } from "./tracking-code";
 import { getAreaCentroid, listAreaCentroids } from "./area-centroids";
 import { getLocationForArea } from "./locations";
 import { haversineMeters } from "./geo";
@@ -236,6 +239,78 @@ CREATE TABLE IF NOT EXISTS next_ids (
   value INTEGER NOT NULL
 );
 
+-- ── Rider delivery tracking (Phase 1) ──────────────────────────────────────
+-- Auth + audit + POD storage for the rider-facing delivery flow.
+-- All tables are additive; existing rows are unaffected.
+
+-- Append-only audit of every status change on an order.
+CREATE TABLE IF NOT EXISTS delivery_status_history (
+  id          INTEGER PRIMARY KEY,
+  orderId     INTEGER NOT NULL,
+  fromStatus  TEXT NOT NULL DEFAULT '',
+  toStatus    TEXT NOT NULL,
+  actorType   TEXT NOT NULL, -- 'rider' | 'admin' | 'system'
+  actorId     INTEGER NOT NULL DEFAULT 0,
+  actorName   TEXT NOT NULL DEFAULT '',
+  reason      TEXT NOT NULL DEFAULT '',
+  lat         REAL,
+  lng         REAL,
+  createdAt   TEXT NOT NULL
+);
+
+-- One row per Delivered status. amountCollected/expectedAmount are NULL until
+-- the deliver flow runs; expectedAmount is stamped at row create time, never
+-- re-derived afterwards.
+CREATE TABLE IF NOT EXISTS proof_of_delivery (
+  id              INTEGER PRIMARY KEY,
+  orderId         INTEGER NOT NULL UNIQUE,
+  photoPath       TEXT NOT NULL DEFAULT '',
+  photoSizeBytes  INTEGER NOT NULL DEFAULT 0,
+  otpVerified     INTEGER NOT NULL DEFAULT 0,
+  otpId           INTEGER,
+  amountCollected REAL,
+  expectedAmount  REAL,
+  lat             REAL,
+  lng             REAL,
+  capturedAt      TEXT NOT NULL DEFAULT '',
+  uploadedAt      TEXT NOT NULL
+);
+
+-- One active OTP per order. Rotated every time rider re-requests.
+CREATE TABLE IF NOT EXISTS delivery_otps (
+  id            INTEGER PRIMARY KEY,
+  orderId       INTEGER NOT NULL,
+  codeHash      TEXT NOT NULL,
+  phone         TEXT NOT NULL,
+  expiresAt     TEXT NOT NULL,
+  attempts      INTEGER NOT NULL DEFAULT 0,
+  deliveredSms  INTEGER NOT NULL DEFAULT 0,
+  createdAt     TEXT NOT NULL
+);
+
+-- JWT refresh-token store + per-device revocation.
+CREATE TABLE IF NOT EXISTS rider_sessions (
+  id                  INTEGER PRIMARY KEY,
+  riderId             INTEGER NOT NULL,
+  refreshTokenHash    TEXT NOT NULL UNIQUE,
+  deviceFingerprint   TEXT NOT NULL DEFAULT '',
+  createdAt           TEXT NOT NULL,
+  expiresAt           TEXT NOT NULL,
+  revokedAt           TEXT NOT NULL DEFAULT ''
+);
+
+-- Login audit. eventType values: login_success | login_fail | pin_lockout |
+-- logout | pin_change | session_revoked.
+CREATE TABLE IF NOT EXISTS rider_login_audit (
+  id          INTEGER PRIMARY KEY,
+  riderId     INTEGER NOT NULL DEFAULT 0,
+  eventType   TEXT NOT NULL,
+  ipAddress   TEXT NOT NULL DEFAULT '',
+  userAgent   TEXT NOT NULL DEFAULT '',
+  success     INTEGER NOT NULL DEFAULT 0,
+  createdAt   TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS area_centroids (
   area TEXT PRIMARY KEY,
   lat REAL NOT NULL,
@@ -255,6 +330,12 @@ CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
 CREATE INDEX IF NOT EXISTS idx_stock_product ON stock_movements(productId);
 CREATE INDEX IF NOT EXISTS idx_po_supplier ON purchase_orders(supplierId);
 CREATE INDEX IF NOT EXISTS idx_po_status ON purchase_orders(status);
+
+CREATE INDEX IF NOT EXISTS idx_dsh_order ON delivery_status_history(orderId, createdAt);
+CREATE INDEX IF NOT EXISTS idx_dsh_actor ON delivery_status_history(actorType, actorId);
+CREATE INDEX IF NOT EXISTS idx_dotp_order_active ON delivery_otps(orderId, expiresAt);
+CREATE INDEX IF NOT EXISTS idx_rs_rider ON rider_sessions(riderId, revokedAt);
+CREATE INDEX IF NOT EXISTS idx_rla_rider_time ON rider_login_audit(riderId, createdAt);
 `;
 
 function initSchema(db: Database.Database): void {
@@ -290,6 +371,16 @@ function initSchema(db: Database.Database): void {
     db.exec("ALTER TABLE orders ADD COLUMN returnedAt TEXT NOT NULL DEFAULT ''");
     db.exec("ALTER TABLE orders ADD COLUMN returnReason TEXT NOT NULL DEFAULT ''");
   }
+  // ── Rider tracking: orders.trackingCode is the public customer-facing
+  // tracking id (DRO-XXXX-XXXX). Lazily populated on first transition into
+  // out-for-delivery; uniqueness enforced by a partial index that ignores
+  // empty strings so existing orders with the default '' don't collide.
+  if (!orderCols.includes("trackingCode")) {
+    db.exec("ALTER TABLE orders ADD COLUMN trackingCode TEXT NOT NULL DEFAULT ''");
+    db.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_trackingcode ON orders(trackingCode) WHERE trackingCode <> ''"
+    );
+  }
   // Riders: homeCluster / subClusters / maxStops for the 4-cluster dispatch grid.
   const riderCols = (db.prepare("PRAGMA table_info(riders)").all() as Array<{ name: string }>).map(
     (c) => c.name
@@ -298,6 +389,45 @@ function initSchema(db: Database.Database): void {
     db.exec("ALTER TABLE riders ADD COLUMN homeCluster TEXT");
     db.exec("ALTER TABLE riders ADD COLUMN subClusters TEXT NOT NULL DEFAULT '[]'");
     db.exec("ALTER TABLE riders ADD COLUMN maxStops INTEGER");
+  }
+  // ── Rider auth + lifecycle columns (Phase 1) ──
+  // pinHash is a bcrypt $2a$10$… string; empty until setRiderPinHash runs.
+  if (!riderCols.includes("pinHash")) {
+    db.exec("ALTER TABLE riders ADD COLUMN pinHash TEXT NOT NULL DEFAULT ''");
+  }
+  if (!riderCols.includes("tempPin")) {
+    db.exec("ALTER TABLE riders ADD COLUMN tempPin INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!riderCols.includes("accountStatus")) {
+    db.exec(
+      "ALTER TABLE riders ADD COLUMN accountStatus TEXT NOT NULL DEFAULT 'active'"
+    );
+  }
+  if (!riderCols.includes("lastLoginAt")) {
+    db.exec("ALTER TABLE riders ADD COLUMN lastLoginAt TEXT NOT NULL DEFAULT ''");
+  }
+  if (!riderCols.includes("avatarPath")) {
+    db.exec("ALTER TABLE riders ADD COLUMN avatarPath TEXT NOT NULL DEFAULT ''");
+  }
+  // ── Riders backfill (Phase 2 fix) ──
+  // Existing riders imported before Phase 1 had no pinHash. Defaulting them
+  // to accountStatus='active' is dishonest — "active" should mean "can log
+  // in with a valid PIN", not "not explicitly blocked". Flip any active
+  // rider with an empty pinHash to pending_verification so they go through
+  // the admin PIN reset endpoint before they can authenticate. Idempotent:
+  // after the first run, either pinHash is non-empty (admin reset) or the
+  // status was deliberately set to suspended/deactivated by an operator
+  // (so the WHERE clause skips them).
+  const backfilled = db
+    .prepare(
+      `UPDATE riders
+          SET accountStatus = 'pending_verification'
+        WHERE pinHash = ''
+          AND accountStatus = 'active'`
+    )
+    .run().changes;
+  if (backfilled > 0) {
+    console.log(`[rider-backfill] flipped ${backfilled} rider(s) with no PIN to pending_verification`);
   }
   // Customers: lat / lng for routing (set from area centroid at create time)
   const customerCols = (db.prepare("PRAGMA table_info(customers)").all() as Array<{ name: string }>).map(
@@ -524,6 +654,69 @@ function initSchema(db: Database.Database): void {
       "Cash on delivery",
       "Live broiler & Sonali",
       now
+    );
+  }
+
+  // Seed sample riders if empty (Phase 1: rider auth + tracking). PINs are
+  // hashed with bcrypt (cost 10) at boot; the plaintext sample PINs are
+  // intentionally simple — they're documented in the README and meant to be
+  // changed on first login. Three riders cover the account-status states
+  // Phase 2's login flow needs to exercise:
+  //   id=1 Rahim  active,        tempPin=1  → first-login forced change
+  //   id=2 Karim  suspended,     tempPin=0  → login hard-blocked
+  //   id=3 Jamal  pending_verification,     → admin approval gate
+  const riderCount = (db.prepare("SELECT COUNT(*) AS n FROM riders").get() as { n: number }).n;
+  if (riderCount === 0) {
+    const insRider = db.prepare(
+      `INSERT INTO riders (
+         id, name, phone, vehicle, status,
+         homeCluster, subClusters, maxStops, createdAt,
+         pinHash, tempPin, accountStatus
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    const now = new Date().toISOString();
+    insRider.run(
+      1,
+      "Rahim",
+      "01700000001",
+      "Bike",
+      "active",
+      "DHK-E",
+      JSON.stringify(["DHK-CW"]),
+      12,
+      now,
+      bcrypt.hashSync("1111", RIDER_BCRYPT_COST),
+      1,
+      "active"
+    );
+    insRider.run(
+      2,
+      "Karim",
+      "01700000002",
+      "Bike",
+      "active",
+      "DHK-NW",
+      JSON.stringify([]),
+      10,
+      now,
+      bcrypt.hashSync("2222", RIDER_BCRYPT_COST),
+      0,
+      "suspended"
+    );
+    insRider.run(
+      3,
+      "Jamal",
+      "01700000003",
+      "Bike",
+      "active",
+      "DHK-SE",
+      JSON.stringify([]),
+      null,
+      now,
+      bcrypt.hashSync("3333", RIDER_BCRYPT_COST),
+      0,
+      "pending_verification"
     );
   }
 }
@@ -1038,6 +1231,12 @@ function rowToRider(r: Record<string, unknown>): Rider {
         ? r.maxStops
         : null,
     createdAt: r.createdAt as string,
+    pinHash: (r.pinHash as string) ?? "",
+    tempPin: ((r.tempPin as number) ?? 0) === 1,
+    accountStatus:
+      ((r.accountStatus as Rider["accountStatus"]) ?? "active"),
+    lastLoginAt: (r.lastLoginAt as string) ?? "",
+    avatarPath: (r.avatarPath as string) ?? "",
   };
 }
 
@@ -1115,6 +1314,7 @@ function rowToOrder(r: Record<string, unknown>): Order {
     wpOrderId: (r.wpOrderId as string) ?? "",
     cluster: (r.cluster as Order["cluster"]) ?? null,
     subCluster: (r.subCluster as string) ?? null,
+    trackingCode: (r.trackingCode as string) ?? "",
     updatedAt: r.updatedAt as string,
   };
 }
@@ -2170,13 +2370,20 @@ export function createRider(data: {
   homeCluster?: Rider["homeCluster"];
   subClusters?: Rider["subClusters"];
   maxStops?: Rider["maxStops"];
+  pinHash?: string;
+  tempPin?: boolean;
+  accountStatus?: Rider["accountStatus"];
 }): Rider {
   const db = getDb();
   const id = nextId(db, "riders");
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO riders (id, name, phone, vehicle, status, homeCluster, subClusters, maxStops, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO riders (
+       id, name, phone, vehicle, status,
+       homeCluster, subClusters, maxStops, createdAt,
+       pinHash, tempPin, accountStatus
+     )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     data.name,
@@ -2187,6 +2394,9 @@ export function createRider(data: {
     JSON.stringify(data.subClusters ?? []),
     data.maxStops ?? null,
     now,
+    data.pinHash ?? "",
+    data.tempPin ? 1 : 0,
+    data.accountStatus ?? "active",
   );
   return getRiders().find((r) => r.id === id)!;
 }
@@ -2197,7 +2407,11 @@ export function updateRider(id: number, data: Partial<Rider>): Rider | null {
   if (!existing) return null;
   const merged: Rider = { ...existing, ...data, id: existing.id };
   db.prepare(
-    `UPDATE riders SET name=?, phone=?, vehicle=?, status=?, homeCluster=?, subClusters=?, maxStops=? WHERE id=?`
+    `UPDATE riders SET
+       name=?, phone=?, vehicle=?, status=?,
+       homeCluster=?, subClusters=?, maxStops=?,
+       pinHash=?, tempPin=?, accountStatus=?, lastLoginAt=?, avatarPath=?
+     WHERE id=?`
   ).run(
     merged.name,
     merged.phone,
@@ -2206,9 +2420,756 @@ export function updateRider(id: number, data: Partial<Rider>): Rider | null {
     merged.homeCluster,
     JSON.stringify(merged.subClusters ?? []),
     merged.maxStops,
+    merged.pinHash,
+    merged.tempPin ? 1 : 0,
+    merged.accountStatus,
+    merged.lastLoginAt,
+    merged.avatarPath ?? "",
     id,
   );
   return merged;
+}
+
+/** Set or clear a rider's avatar image path. Caller is responsible for
+ *  writing/clearing the file on disk before calling. */
+export function setRiderAvatarPath(riderId: number, avatarPath: string): Rider | null {
+  const db = getDb();
+  const existing = getRiders().find((r) => r.id === riderId);
+  if (!existing) return null;
+  db.prepare("UPDATE riders SET avatarPath = ? WHERE id = ?").run(avatarPath, riderId);
+  return { ...existing, avatarPath };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Rider tracking public API (Phase 1: schema + auth foundation, no UI yet)
+//
+// Functions are grouped:
+//   - Rider auth columns (PIN, lifecycle, login audit)
+//   - Rider sessions (refresh-token store + per-device revocation)
+//   - Delivery status history (append-only audit log)
+//   - Proof of delivery (one row per delivered order)
+//   - Delivery OTPs (per-order 4-digit code, attempt-limited)
+//
+// All writers use parameterized statements; all reads return strongly typed
+// rows. UUIDs / IDs come from nextId() so the same id namespace is shared
+// across tables (no collision risk between, say, an order id and a session
+// id, because callers type-narrow before passing them around).
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Bcrypt cost factor used for all rider PINs. Cost 10 ≈ 100ms per verify on
+ *  commodity hardware — fast enough to feel instant to a rider, slow enough
+ *  that an offline brute-force of a 4-digit PIN over 10,000 candidates takes
+ *  ~17 minutes per stolen DB row. Bump to 12 if hardware gets faster. */
+export const RIDER_BCRYPT_COST = 10;
+
+/** Login-audit window used by the PIN brute-force lockout. The 5th failed
+ *  attempt within this window flips the rider to `suspended`. */
+export const RIDER_PIN_LOCKOUT_WINDOW_MS = 15 * 60 * 1000; // 15 min
+export const RIDER_PIN_LOCKOUT_THRESHOLD = 5;
+
+/** Rider-session TTL. Access tokens live 15 min; refresh tokens live this
+ *  long. The auth layer (Phase 2) reads both values. */
+export const RIDER_REFRESH_TOKEN_TTL_DAYS = 30;
+
+/** Per-order delivery-OTP TTL and attempt cap before the OTP is invalidated
+ *  and a new one must be requested. */
+export const DELIVERY_OTP_TTL_MINUTES = 10;
+export const DELIVERY_OTP_MAX_ATTEMPTS = 5;
+
+// ── Types returned to callers ──
+
+export type RiderLoginEvent =
+  | "login_success"
+  | "login_fail"
+  | "pin_lockout"
+  | "logout"
+  | "pin_change"
+  | "session_revoked";
+
+export interface RiderSession {
+  id: number;
+  riderId: number;
+  refreshTokenHash: string;
+  deviceFingerprint: string;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt: string;
+}
+
+export interface RiderLoginAuditRow {
+  id: number;
+  riderId: number;
+  eventType: RiderLoginEvent;
+  ipAddress: string;
+  userAgent: string;
+  success: boolean;
+  createdAt: string;
+}
+
+export type DeliveryActorType = "rider" | "admin" | "system";
+
+export interface DeliveryStatusHistoryRow {
+  id: number;
+  orderId: number;
+  fromStatus: string;
+  toStatus: string;
+  actorType: DeliveryActorType;
+  actorId: number;
+  actorName: string;
+  reason: string;
+  lat: number | null;
+  lng: number | null;
+  createdAt: string;
+}
+
+export interface ProofOfDelivery {
+  id: number;
+  orderId: number;
+  photoPath: string;
+  photoSizeBytes: number;
+  otpVerified: boolean;
+  otpId: number | null;
+  amountCollected: number | null;
+  expectedAmount: number | null;
+  lat: number | null;
+  lng: number | null;
+  capturedAt: string;
+  uploadedAt: string;
+}
+
+export interface DeliveryOtp {
+  id: number;
+  orderId: number;
+  codeHash: string;
+  phone: string;
+  expiresAt: string;
+  attempts: number;
+  deliveredSms: boolean;
+  createdAt: string;
+}
+
+// ── Row mappers for the new tables ──
+
+function rowToRiderSession(r: Record<string, unknown>): RiderSession {
+  return {
+    id: r.id as number,
+    riderId: r.riderId as number,
+    refreshTokenHash: r.refreshTokenHash as string,
+    deviceFingerprint: (r.deviceFingerprint as string) ?? "",
+    createdAt: r.createdAt as string,
+    expiresAt: r.expiresAt as string,
+    revokedAt: (r.revokedAt as string) ?? "",
+  };
+}
+
+function rowToLoginAudit(r: Record<string, unknown>): RiderLoginAuditRow {
+  return {
+    id: r.id as number,
+    riderId: (r.riderId as number) ?? 0,
+    eventType: r.eventType as RiderLoginEvent,
+    ipAddress: (r.ipAddress as string) ?? "",
+    userAgent: (r.userAgent as string) ?? "",
+    success: ((r.success as number) ?? 0) === 1,
+    createdAt: r.createdAt as string,
+  };
+}
+
+function rowToStatusHistory(r: Record<string, unknown>): DeliveryStatusHistoryRow {
+  return {
+    id: r.id as number,
+    orderId: r.orderId as number,
+    fromStatus: (r.fromStatus as string) ?? "",
+    toStatus: r.toStatus as string,
+    actorType: r.actorType as DeliveryActorType,
+    actorId: (r.actorId as number) ?? 0,
+    actorName: (r.actorName as string) ?? "",
+    reason: (r.reason as string) ?? "",
+    lat: (r.lat as number | null) ?? null,
+    lng: (r.lng as number | null) ?? null,
+    createdAt: r.createdAt as string,
+  };
+}
+
+function rowToProofOfDelivery(r: Record<string, unknown>): ProofOfDelivery {
+  return {
+    id: r.id as number,
+    orderId: r.orderId as number,
+    photoPath: (r.photoPath as string) ?? "",
+    photoSizeBytes: (r.photoSizeBytes as number) ?? 0,
+    otpVerified: ((r.otpVerified as number) ?? 0) === 1,
+    otpId: (r.otpId as number | null) ?? null,
+    amountCollected: (r.amountCollected as number | null) ?? null,
+    expectedAmount: (r.expectedAmount as number | null) ?? null,
+    lat: (r.lat as number | null) ?? null,
+    lng: (r.lng as number | null) ?? null,
+    capturedAt: (r.capturedAt as string) ?? "",
+    uploadedAt: r.uploadedAt as string,
+  };
+}
+
+function rowToDeliveryOtp(r: Record<string, unknown>): DeliveryOtp {
+  return {
+    id: r.id as number,
+    orderId: r.orderId as number,
+    codeHash: r.codeHash as string,
+    phone: r.phone as string,
+    expiresAt: r.expiresAt as string,
+    attempts: (r.attempts as number) ?? 0,
+    deliveredSms: ((r.deliveredSms as number) ?? 0) === 1,
+    createdAt: r.createdAt as string,
+  };
+}
+
+// ── Hash helpers ──
+
+/** Bcrypt-hash a plaintext PIN using RIDER_BCRYPT_COST. The returned string
+ *  already embeds the salt, so callers must store it verbatim. */
+export function hashRiderPin(plaintext: string): string {
+  return bcrypt.hashSync(plaintext, RIDER_BCRYPT_COST);
+}
+
+/** Verify a plaintext PIN against a stored bcrypt hash. Returns false on any
+ *  mismatch, missing rider, or un-hashed pinHash — never throws.
+ *  The empty-pinHash branch is deliberate: a rider with no PIN set yet must
+ *  not authenticate as if a successful comparison happened. Bcrypt would
+ *  incidentally throw on an empty hash string, but that throw is not a
+ *  security decision — this explicit check is. */
+export function verifyRiderPin(riderId: number, plaintext: string): boolean {
+  const rider = getRiders().find((r) => r.id === riderId);
+  if (!rider) return false;
+  if (!rider.pinHash || rider.pinHash.trim().length === 0) return false;
+  try {
+    return bcrypt.compareSync(plaintext, rider.pinHash);
+  } catch {
+    return false;
+  }
+}
+
+/** SHA-256 hash of a refresh token (or any opaque string). Used to store
+ *  refresh tokens at rest — we keep the hash, not the plaintext. The raw
+ *  token only ever lives in the client's localStorage / httpOnly cookie. */
+export function sha256(input: string): string {
+  return crypto.createHash("sha256").update(input, "utf8").digest("hex");
+}
+
+// ── PIN + lifecycle writers ──
+
+/** Replace a rider's stored PIN hash and toggle the tempPin flag in one shot.
+ *  Used by /admin PIN reset (isTemp=true) and by /api/rider/change-pin
+ *  (isTemp=false). The plaintext PIN is never stored. */
+export function setRiderPinHash(
+  riderId: number,
+  plaintext: string,
+  isTemp: boolean
+): Rider | null {
+  const rider = getRiders().find((r) => r.id === riderId);
+  if (!rider) return null;
+  return updateRider(riderId, {
+    pinHash: hashRiderPin(plaintext),
+    tempPin: isTemp,
+    lastLoginAt: rider.lastLoginAt, // unchanged
+  });
+}
+
+/** Set the rider's lifecycle status. `pin_lockout` from the login flow calls
+ *  this with "suspended"; admin endpoints use the same primitive. */
+export function setRiderAccountStatus(
+  riderId: number,
+  status: Rider["accountStatus"]
+): Rider | null {
+  return updateRider(riderId, { accountStatus: status });
+}
+
+/** Stamp the rider's lastLoginAt to "now". Called on every successful login. */
+export function setRiderLastLoginAt(riderId: number): Rider | null {
+  return updateRider(riderId, { lastLoginAt: new Date().toISOString() });
+}
+
+/** Look up a rider by phone (used by the login flow). Returns null if the
+ *  phone doesn't match any rider — login error messages must not leak
+ *  whether the phone exists vs. the PIN was wrong, so callers should always
+ *  return the same 401. */
+export function getRiderByPhone(phone: string): Rider | null {
+  const normalized = normalizePhone(phone);
+  return getRiders().find((r) => phonesMatch(r.phone, normalized)) ?? null;
+}
+
+// ── Login audit ──
+
+export interface RecordLoginAuditInput {
+  riderId: number; // 0 for unknown-phone attempts
+  eventType: RiderLoginEvent;
+  ipAddress: string;
+  userAgent: string;
+  success: boolean;
+}
+
+/** Append a row to rider_login_audit. Never throws — audit write failure must
+ *  not block the login flow that triggered it. */
+export function recordRiderLoginAudit(input: RecordLoginAuditInput): void {
+  try {
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO rider_login_audit
+         (id, riderId, eventType, ipAddress, userAgent, success, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      nextId(db, "rider_login_audit"),
+      input.riderId,
+      input.eventType,
+      input.ipAddress,
+      input.userAgent,
+      input.success ? 1 : 0,
+      new Date().toISOString(),
+    );
+  } catch (err) {
+    // Audit failures should be loud in the log but never block auth.
+    console.error("[rider-login-audit] write failed", err);
+  }
+}
+
+/** Most recent N audit rows for a rider, newest first. */
+export function getRiderLoginAudit(
+  riderId: number,
+  limit = 50
+): RiderLoginAuditRow[] {
+  const db = getDb();
+  return (
+    db
+      .prepare(
+        `SELECT * FROM rider_login_audit
+          WHERE riderId = ?
+          ORDER BY createdAt DESC, id DESC
+          LIMIT ?`
+      )
+      .all(riderId, limit) as Record<string, unknown>[]
+  ).map(rowToLoginAudit);
+}
+
+/** Count failed PIN attempts for this rider within the rolling lockout
+ *  window, but ignore fails that happened *before* the most recent successful
+ *  login or admin PIN reset. This way an admin who clears a rider's lockout
+ *  (via /api/riders/[id]/pin/reset or /reactivate) doesn't have to wait 15
+ *  min for the audit log to roll over — the counter implicitly clears.
+ *  Backed by rider_login_audit so the lockout itself is auditable. */
+export function countRecentRiderPinFailures(riderId: number): number {
+  const db = getDb();
+  const since = new Date(Date.now() - RIDER_PIN_LOCKOUT_WINDOW_MS).toISOString();
+  const clearedAt = db
+    .prepare(
+      `SELECT MAX(createdAt) AS m FROM rider_login_audit
+        WHERE riderId = ?
+          AND eventType IN ('login_success', 'pin_change')`
+    )
+    .get(riderId) as { m: string | null };
+  const cutoff = clearedAt.m && clearedAt.m > since ? clearedAt.m : since;
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM rider_login_audit
+        WHERE riderId = ?
+          AND eventType = 'login_fail'
+          AND createdAt >= ?`
+    )
+    .get(riderId, cutoff) as { n: number };
+  return row.n;
+}
+
+/** Convenience wrapper for the lockout rule. Returns true if the rider is
+ *  already at or beyond the threshold (i.e. login should be hard-rejected
+ *  without attempting bcrypt). */
+export function isRiderPinLockedOut(riderId: number): boolean {
+  return countRecentRiderPinFailures(riderId) >= RIDER_PIN_LOCKOUT_THRESHOLD;
+}
+
+// ── Rider sessions (refresh-token store) ──
+
+/** Mint a new session row. The refresh token JWT (signed upstream) is hashed
+ *  before storage — the plaintext JWT is never written to disk. */
+export function createRiderSession(
+  riderId: number,
+  refreshTokenJwt: string,
+  deviceFingerprint: string
+): RiderSession {
+  const db = getDb();
+  const now = new Date();
+  const expiresAt = new Date(
+    now.getTime() + RIDER_REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000
+  );
+  const id = nextId(db, "rider_sessions");
+  db.prepare(
+    `INSERT INTO rider_sessions
+       (id, riderId, refreshTokenHash, deviceFingerprint, createdAt, expiresAt)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    riderId,
+    sha256(refreshTokenJwt),
+    deviceFingerprint,
+    now.toISOString(),
+    expiresAt.toISOString(),
+  );
+  return {
+    id,
+    riderId,
+    refreshTokenHash: sha256(refreshTokenJwt),
+    deviceFingerprint,
+    createdAt: now.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    revokedAt: "",
+  };
+}
+
+/** Look up a session by its refresh-token hash. Used by /api/rider/refresh.
+ *  Returns null if the session is revoked or expired. */
+export function getRiderSessionByRefreshHash(
+  refreshTokenJwt: string
+): RiderSession | null {
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT * FROM rider_sessions
+        WHERE refreshTokenHash = ?
+          AND revokedAt = ''
+          AND expiresAt > ?`
+    )
+    .get(sha256(refreshTokenJwt), new Date().toISOString()) as
+    | Record<string, unknown>
+    | undefined;
+  return row ? rowToRiderSession(row) : null;
+}
+
+/** Patch a freshly-created session row's refreshTokenHash to match the signed
+ *  refresh JWT. Used after createRiderSession + signRiderToken so the JWT
+ *  carries the actual session id and the row stores sha256(JWT). */
+export function bindRiderSessionRefreshToken(
+  sessionId: number,
+  refreshTokenJwt: string
+): void {
+  const db = getDb();
+  db.prepare("UPDATE rider_sessions SET refreshTokenHash = ? WHERE id = ?").run(
+    sha256(refreshTokenJwt),
+    sessionId
+  );
+}
+
+/** Revoke a single session by id. Idempotent. */
+export function revokeRiderSession(id: number): void {
+  const db = getDb();
+  db.prepare(
+    `UPDATE rider_sessions SET revokedAt = ?
+      WHERE id = ? AND revokedAt = ''`
+  ).run(new Date().toISOString(), id);
+}
+
+/** Revoke every active session for a rider. Called on:
+ *  - successful login (single-device-per-account policy)
+ *  - PIN lockout
+ *  - admin suspend / deactivate
+ *  Returns the count of rows revoked. */
+export function revokeAllRiderSessions(riderId: number): number {
+  const db = getDb();
+  const r = db
+    .prepare(
+      `UPDATE rider_sessions SET revokedAt = ?
+        WHERE riderId = ? AND revokedAt = ''`
+    )
+    .run(new Date().toISOString(), riderId);
+  return r.changes;
+}
+
+// ── Delivery status history ──
+
+export interface InsertStatusHistoryInput {
+  orderId: number;
+  fromStatus: string;
+  toStatus: OrderStatus;
+  actorType: DeliveryActorType;
+  actorId: number;
+  actorName: string;
+  reason?: string;
+  lat?: number | null;
+  lng?: number | null;
+}
+
+/** Append a row to delivery_status_history. Never throws on the happy path;
+ *  history writes must not roll back a status change the user just saw. */
+export function insertDeliveryStatusHistory(
+  input: InsertStatusHistoryInput
+): DeliveryStatusHistoryRow | null {
+  try {
+    const db = getDb();
+    const id = nextId(db, "delivery_status_history");
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO delivery_status_history
+         (id, orderId, fromStatus, toStatus, actorType, actorId, actorName,
+          reason, lat, lng, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      input.orderId,
+      input.fromStatus,
+      input.toStatus,
+      input.actorType,
+      input.actorId,
+      input.actorName,
+      input.reason ?? "",
+      input.lat ?? null,
+      input.lng ?? null,
+      now,
+    );
+    return {
+      id,
+      orderId: input.orderId,
+      fromStatus: input.fromStatus,
+      toStatus: input.toStatus,
+      actorType: input.actorType,
+      actorId: input.actorId,
+      actorName: input.actorName,
+      reason: input.reason ?? "",
+      lat: input.lat ?? null,
+      lng: input.lng ?? null,
+      createdAt: now,
+    };
+  } catch (err) {
+    console.error("[delivery-status-history] insert failed", err);
+    return null;
+  }
+}
+
+/** Newest-first audit log for an order. Capped at `limit` rows. */
+export function getDeliveryStatusHistory(
+  orderId: number,
+  limit = 100
+): DeliveryStatusHistoryRow[] {
+  const db = getDb();
+  return (
+    db
+      .prepare(
+        `SELECT * FROM delivery_status_history
+          WHERE orderId = ?
+          ORDER BY createdAt DESC, id DESC
+          LIMIT ?`
+      )
+      .all(orderId, limit) as Record<string, unknown>[]
+  ).map(rowToStatusHistory);
+}
+
+// ── Proof of delivery ──
+
+export interface InsertProofOfDeliveryInput {
+  orderId: number;
+  photoPath: string;
+  photoSizeBytes: number;
+  otpVerified: boolean;
+  otpId: number | null;
+  amountCollected: number | null;
+  expectedAmount: number;
+  lat: number | null;
+  lng: number | null;
+  capturedAt: string;
+}
+
+/** Insert the POD row. UNIQUE(orderId) guarantees one POD per delivery, so a
+ *  duplicate call returns the existing row instead of erroring. */
+export function insertProofOfDelivery(
+  input: InsertProofOfDeliveryInput
+): ProofOfDelivery {
+  const db = getDb();
+  // Idempotent: if a POD already exists for this order, return it without
+  // trying to insert. The override endpoint relies on this to capture an
+  // admin-supplied COD amount into the existing row without overwriting any
+  // photo / OTP state.
+  const existing = db
+    .prepare("SELECT id FROM proof_of_delivery WHERE orderId = ?")
+    .get(input.orderId) as { id: number } | undefined;
+  if (existing) return getProofOfDelivery(input.orderId)!;
+  const id = nextId(db, "proof_of_delivery");
+  const now = new Date().toISOString();
+  // Use INSERT OR IGNORE so that a stale `next_id` counter (the dev-mode hot
+  // reload sometimes leaves the counter ahead of the actual rows) doesn't
+  // surface as a 500 to the caller. The existing-row path is the source of
+  // truth; if it appears, fall through to the return-below.
+  db.prepare(
+    `INSERT OR IGNORE INTO proof_of_delivery
+       (id, orderId, photoPath, photoSizeBytes, otpVerified, otpId,
+        amountCollected, expectedAmount, lat, lng, capturedAt, uploadedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    input.orderId,
+    input.photoPath,
+    input.photoSizeBytes,
+    input.otpVerified ? 1 : 0,
+    input.otpId,
+    input.amountCollected,
+    input.expectedAmount,
+    input.lat,
+    input.lng,
+    input.capturedAt,
+    now,
+  );
+  const after = getProofOfDelivery(input.orderId);
+  if (after) return after;
+  return {
+    id,
+    orderId: input.orderId,
+    photoPath: input.photoPath,
+    photoSizeBytes: input.photoSizeBytes,
+    otpVerified: input.otpVerified,
+    otpId: input.otpId,
+    amountCollected: input.amountCollected,
+    expectedAmount: input.expectedAmount,
+    lat: input.lat,
+    lng: input.lng,
+    capturedAt: input.capturedAt,
+    uploadedAt: now,
+  };
+}
+
+export function getProofOfDelivery(orderId: number): ProofOfDelivery | null {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT * FROM proof_of_delivery WHERE orderId = ?")
+    .get(orderId) as Record<string, unknown> | undefined;
+  return row ? rowToProofOfDelivery(row) : null;
+}
+
+/** Patch specific fields on an existing POD row. Used by the rider endpoints
+ *  as the POD comes together in pieces: first photo, then OTP, then COD.
+ *  Returns the updated row, or null if no POD exists for this order yet. */
+export function updateProofOfDelivery(
+  orderId: number,
+  patch: Partial<Omit<ProofOfDelivery, "id" | "orderId" | "uploadedAt">>
+): ProofOfDelivery | null {
+  const db = getDb();
+  const existing = db
+    .prepare("SELECT id FROM proof_of_delivery WHERE orderId = ?")
+    .get(orderId) as { id: number } | undefined;
+  if (!existing) return null;
+  const fields: string[] = [];
+  const values: unknown[] = [];
+  if (patch.photoPath !== undefined)         { fields.push("photoPath = ?");       values.push(patch.photoPath); }
+  if (patch.photoSizeBytes !== undefined)     { fields.push("photoSizeBytes = ?");  values.push(patch.photoSizeBytes); }
+  if (patch.otpVerified !== undefined)        { fields.push("otpVerified = ?");      values.push(patch.otpVerified ? 1 : 0); }
+  if (patch.otpId !== undefined)              { fields.push("otpId = ?");            values.push(patch.otpId); }
+  if (patch.amountCollected !== undefined)    { fields.push("amountCollected = ?");  values.push(patch.amountCollected); }
+  if (patch.expectedAmount !== undefined)     { fields.push("expectedAmount = ?");   values.push(patch.expectedAmount); }
+  if (patch.lat !== undefined)                { fields.push("lat = ?");              values.push(patch.lat); }
+  if (patch.lng !== undefined)                { fields.push("lng = ?");              values.push(patch.lng); }
+  if (patch.capturedAt !== undefined)         { fields.push("capturedAt = ?");       values.push(patch.capturedAt); }
+  if (fields.length === 0) return getProofOfDelivery(orderId);
+  db.prepare(
+    `UPDATE proof_of_delivery SET ${fields.join(", ")} WHERE orderId = ?`
+  ).run(...values, orderId);
+  return getProofOfDelivery(orderId);
+}
+
+/** Compute the expected COD amount for an order. Mirrors the logic used at
+ *  POD insert time so admin reconciliation can recompute on the fly without
+ *  re-reading every POD row. */
+export function expectedCodAmount(orderId: number, companyId: number): number {
+  const o = getOrder(orderId, companyId);
+  if (!o) return 0;
+  return o.paymentMethod === "cod" ? o.total : 0;
+}
+
+// ── Delivery OTP ──
+
+export interface CreateDeliveryOtpInput {
+  orderId: number;
+  phone: string;
+  /** Override the default TTL (mostly for tests). */
+  ttlMinutes?: number;
+}
+
+/** Generate a 4-digit code, hash it (sha256 + per-row salt baked into the
+ *  stored value), persist it, and return both the id and the plaintext code
+ *  so the caller can hand the code to the SMS adapter. The plaintext is NOT
+ *  returned from any read path — only this function knows it.
+ *  Storage format: `<saltHex>:<sha256Hex>` so the verifier can recover the
+ *  salt without a separate column. */
+export function createDeliveryOtp(
+  input: CreateDeliveryOtpInput
+): { id: number; code: string; expiresAt: string } {
+  const db = getDb();
+  const code = String(Math.floor(1000 + Math.random() * 9000)); // 4 digits, leading-zero safe via range
+  const salt = crypto.randomBytes(8).toString("hex");
+  const codeHash = `${salt}:${sha256(`${salt}:${code}`)}`;
+  const ttlMs = (input.ttlMinutes ?? DELIVERY_OTP_TTL_MINUTES) * 60 * 1000;
+  const expiresAt = new Date(Date.now() + ttlMs).toISOString();
+  const id = nextId(db, "delivery_otps");
+  db.prepare(
+    `INSERT INTO delivery_otps
+       (id, orderId, codeHash, phone, expiresAt, attempts, deliveredSms, createdAt)
+     VALUES (?, ?, ?, ?, ?, 0, 0, ?)`
+  ).run(id, input.orderId, codeHash, input.phone, expiresAt, new Date().toISOString());
+  return { id, code, expiresAt };
+}
+
+/** Most recent un-expired, non-exhausted OTP for an order. Returns null if
+ *  none exists; caller should generate a new one. */
+export function getActiveDeliveryOtp(orderId: number): DeliveryOtp | null {
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT * FROM delivery_otps
+        WHERE orderId = ?
+          AND expiresAt > ?
+          AND attempts < ?
+        ORDER BY createdAt DESC, id DESC
+        LIMIT 1`
+    )
+    .get(orderId, new Date().toISOString(), DELIVERY_OTP_MAX_ATTEMPTS) as
+    | Record<string, unknown>
+    | undefined;
+  return row ? rowToDeliveryOtp(row) : null;
+}
+
+/** Verify a 4-digit OTP against the active row. On success, marks it used
+ *  and returns true. On wrong code, increments attempts and returns false.
+ *  Caller is responsible for checking the lockout threshold (5 attempts)
+ *  after this returns false. */
+export function verifyDeliveryOtp(orderId: number, code: string): boolean {
+  const db = getDb();
+  const otp = getActiveDeliveryOtp(orderId);
+  if (!otp) return false;
+  // Stored codeHash format: `<saltHex>:<sha256Hex>`. Parse and re-hash.
+  const colonAt = otp.codeHash.indexOf(":");
+  if (colonAt < 1) return false;
+  const salt = otp.codeHash.slice(0, colonAt);
+  const storedHash = otp.codeHash.slice(colonAt + 1);
+  const candidateHash = sha256(`${salt}:${code}`);
+  if (candidateHash !== storedHash) {
+    db.prepare("UPDATE delivery_otps SET attempts = attempts + 1 WHERE id = ?").run(otp.id);
+    return false;
+  }
+  markDeliveryOtpUsed(otp.id);
+  return true;
+}
+
+/** Mark an OTP as used by setting attempts to MAX so getActiveDeliveryOtp
+ *  no longer returns it. We don't have a separate `usedAt` column to keep
+ *  the schema small — the attempts column is the source of truth. */
+export function markDeliveryOtpUsed(otpId: number): void {
+  const db = getDb();
+  db.prepare("UPDATE delivery_otps SET attempts = ? WHERE id = ?").run(
+    DELIVERY_OTP_MAX_ATTEMPTS,
+    otpId
+  );
+}
+
+/** Stamp that the SMS adapter successfully sent the OTP. Used by Phase 3's
+ *  delivery flow to surface "OTP not delivered" warnings in the rider UI. */
+export function markDeliveryOtpSmsSent(otpId: number): void {
+  const db = getDb();
+  db.prepare("UPDATE delivery_otps SET deliveredSms = 1 WHERE id = ?").run(otpId);
+}
+
+/** Return the order's current expectedAmount given its payment method.
+ *  Used at POD insert time so the value is stamped once and immutable. */
+export function expectedAmountForOrder(order: Order): number {
+  return order.paymentMethod === "cod" ? order.total : 0;
 }
 
 // --- Public API: Orders ---
@@ -2227,6 +3188,19 @@ export function getOrder(id: number, companyId: number): Order | undefined {
   const row = db
     .prepare("SELECT * FROM orders WHERE id = ? AND companyId = ?")
     .get(id, companyId) as Record<string, unknown> | undefined;
+  return row ? rowToOrder(row) : undefined;
+}
+
+/** Cross-tenant lookup for the customer tracking page (no tenant cookie on
+ *  the public site). Returns null if the code doesn't match any order. The
+ *  partial unique index `idx_orders_trackingcode` makes this a fast single-
+ *  index scan. */
+export function getOrderByTrackingCode(code: string): Order | undefined {
+  if (!code || typeof code !== "string") return undefined;
+  const db = getDb();
+  const row = db
+    .prepare("SELECT * FROM orders WHERE trackingCode = ?")
+    .get(code) as Record<string, unknown> | undefined;
   return row ? rowToOrder(row) : undefined;
 }
 
@@ -3022,6 +3996,65 @@ export function getRiderPlanOrders(riderId: number, date: string, companyId: num
   return rows.map(rowToOrder);
 }
 
+/** Cross-tenant variant of getRiderPlanOrders for the rider app: riders are
+ *  shared across companies (per README), so the rider's job list is the
+ *  union of their assignments on every tenant. The dispatcher dashboard
+ *  (which is tenant-scoped) should keep using getRiderPlanOrders with an
+ *  explicit companyId. */
+export function getRiderAssignedOrdersAcrossTenants(
+  riderId: number,
+  date: string
+): Order[] {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT * FROM orders
+        WHERE riderId = ?
+          AND date = ?
+          AND deliveryMode != 'pathao'
+        ORDER BY CASE WHEN riderSeq IS NULL THEN 1 ELSE 0 END,
+                 riderSeq ASC,
+                 id ASC`
+    )
+    .all(riderId, date) as Record<string, unknown>[];
+  return rows.map(rowToOrder);
+}
+
+/** Single-order lookup that enforces the rider ↔ order ownership rule at
+ *  the query level. Returns the order only if `riderId` is the rider whose
+ *  id was passed in — the rider app never sees another rider's load.
+ *  Tenant-agnostic on purpose (riders are shared across tenants). */
+export function getRiderOrder(riderId: number, orderId: number): Order | undefined {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT * FROM orders WHERE id = ? AND riderId = ?")
+    .get(orderId, riderId) as Record<string, unknown> | undefined;
+  return row ? rowToOrder(row) : undefined;
+}
+
+/** Assign a freshly-generated tracking code to an order. Lazily populated on
+ *  first transition into `out-for-delivery` so orders that never go out
+ *  (cancelled before dispatch, etc.) don't burn a tracking code. Idempotent:
+ *  if the order already has a tracking code, it's returned as-is. */
+export function ensureOrderTrackingCode(orderId: number): string {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT trackingCode FROM orders WHERE id = ?")
+    .get(orderId) as { trackingCode: string } | undefined;
+  if (!row) return "";
+  if (row.trackingCode) return row.trackingCode;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const code = generateTrackingCode();
+    try {
+      db.prepare("UPDATE orders SET trackingCode = ? WHERE id = ? AND trackingCode = ''").run(code, orderId);
+      return code;
+    } catch (err) {
+      if (attempt === 7) throw err;
+    }
+  }
+  return row.trackingCode;
+}
+
 /** Get all unassigned own-rider orders for a date, eligible for planning. */
 export function getUnassignedOrders(date: string, companyId: number): Order[] {
   const db = getDb();
@@ -3059,6 +4092,356 @@ export function getRidersWithPlans(date: string, companyId: number): Array<{ rid
   // Sort: most orders first, then by distance.
   result.sort((a, b) => b.orders.length - a.orders.length || a.totalDistanceMeters - b.totalDistanceMeters);
   return result;
+}
+
+export interface DispatchRow {
+  rider: Rider;
+  orders: Order[];
+  podByOrderId: Record<number, {
+    photoUploaded: boolean;
+    otpVerified: boolean;
+    amountCollected: number | null;
+    expectedAmount: number | null;
+    otpDispatchedAt: string | null;
+    otpLast4: string | null;
+    otpAttempts: number;
+    otpExpired: boolean;
+    lastTransitionReason: string;
+    lastTransitionActor: string;
+  }>;
+  totalDistanceMeters: number;
+  pending: number;
+  delivered: number;
+  failed: number;
+  totalCodDue: number;
+  totalCodCollected: number;
+}
+
+/**
+ * Tenant-scoped dispatch board: per-rider + per-order delivery snapshot for a
+ * single date. Joins orders with their POD state and last status-history row
+ * so the UI can show photo / OTP / COD state + the bypass/override flag
+ * without N+1 queries.
+ */
+export function getDispatchBoard(
+  date: string,
+  companyId: number
+): DispatchRow[] {
+  const db = getDb();
+  const riders = getActiveRiders();
+  const result: DispatchRow[] = [];
+  for (const rider of riders) {
+    const orders = getRiderPlanOrders(rider.id, date, companyId);
+    if (orders.length === 0) continue;
+    const podByOrderId: DispatchRow["podByOrderId"] = {};
+    let pending = 0;
+    let delivered = 0;
+    let failed = 0;
+    let totalCodDue = 0;
+    let totalCodCollected = 0;
+    for (const o of orders) {
+      if (o.status === "delivered") delivered += 1;
+      else if (o.status === "cancelled" || o.status === "returned") failed += 1;
+      else pending += 1;
+      const pod = db
+        .prepare(
+          "SELECT photoPath, otpVerified, amountCollected, expectedAmount FROM proof_of_delivery WHERE orderId = ?"
+        )
+        .get(o.id) as
+        | {
+            photoPath: string | null;
+            otpVerified: number | null;
+            amountCollected: number | null;
+            expectedAmount: number | null;
+          }
+        | undefined;
+      const lastHistory = db
+        .prepare(
+          `SELECT reason, actorType, actorName FROM delivery_status_history
+            WHERE orderId = ? ORDER BY createdAt DESC, id DESC LIMIT 1`
+        )
+        .get(o.id) as
+        | { reason: string; actorType: string; actorName: string }
+        | undefined;
+      // Most recent OTP request — surfaces whether the dispatcher (or rider)
+      // has already triggered a code for the customer. Returned even when
+      // not yet verified, so the UI can show "OTP sent at HH:MM, waiting on
+      // customer" vs. "no code sent yet".
+      const lastOtp = db
+        .prepare(
+          `SELECT codeHash, createdAt, expiresAt, attempts
+             FROM delivery_otps
+            WHERE orderId = ?
+            ORDER BY createdAt DESC, id DESC
+            LIMIT 1`
+        )
+        .get(o.id) as
+        | { codeHash: string; createdAt: string; expiresAt: string; attempts: number }
+        | undefined;
+      const otpLast4 = lastOtp
+        ? lastOtp.codeHash.length >= 4
+          ? Number(lastOtp.codeHash.slice(-4)) % 10000
+          : null
+        : null;
+      podByOrderId[o.id] = {
+        photoUploaded: !!pod?.photoPath,
+        otpVerified: !!pod?.otpVerified,
+        amountCollected: pod?.amountCollected ?? null,
+        expectedAmount: pod?.expectedAmount ?? null,
+        otpDispatchedAt: lastOtp?.createdAt ?? null,
+        otpLast4: otpLast4 != null ? String(otpLast4).padStart(4, "0") : null,
+        otpAttempts: lastOtp?.attempts ?? 0,
+        otpExpired: lastOtp ? new Date(lastOtp.expiresAt).getTime() < Date.now() : false,
+        lastTransitionReason: lastHistory?.reason ?? "",
+        lastTransitionActor: lastHistory
+          ? `${lastHistory.actorType}:${lastHistory.actorName}`
+          : "",
+      };
+      if (o.status === "delivered" && o.paymentMethod === "cod") {
+        totalCodDue += o.total - (o.paid || 0);
+        if (pod?.amountCollected != null) totalCodCollected += pod.amountCollected;
+      }
+    }
+    let total = 0;
+    const shop = getShopLocation(companyId);
+    let prev: { lat: number; lng: number } | null = shop;
+    for (const o of orders) {
+      if (typeof o.lat === "number" && typeof o.lng === "number" && prev) {
+        total += haversineMeters(prev.lat, prev.lng, o.lat, o.lng);
+        prev = { lat: o.lat, lng: o.lng };
+      }
+    }
+    result.push({
+      rider,
+      orders,
+      podByOrderId,
+      totalDistanceMeters: total,
+      pending,
+      delivered,
+      failed,
+      totalCodDue,
+      totalCodCollected,
+    });
+  }
+  result.sort((a, b) => b.orders.length - a.orders.length || a.totalDistanceMeters - b.totalDistanceMeters);
+  return result;
+}
+
+export interface CodReconciliationRow {
+  riderId: number;
+  riderName: string;
+  totalDeliveredCodOrders: number;
+  expectedAmount: number;
+  collectedAmount: number;
+  discrepancy: number;
+  /** Count of orders where expected != collected (within rounding) — surface these for follow-up. */
+  mismatchedOrders: number;
+}
+
+/**
+ * Tenant-scoped daily COD reconciliation. For each rider who delivered at
+ * least one COD order today, returns:
+ *   - expectedAmount  = SUM of (order.total - order.paid) for delivered COD orders
+ *   - collectedAmount = SUM of proof_of_delivery.amountCollected (which the
+ *                        rider typed, may differ from expected — that's the
+ *                        whole point of reconciliation)
+ *   - discrepancy     = expectedAmount - collectedAmount (negative = rider
+ *                        under-collected; positive = over-collected, which
+ *                        usually means customer overpaid)
+ *   - mismatchedOrders = count of orders where |expected − collected| > ৳0.5
+ */
+export function getCodReconciliation(
+  date: string,
+  companyId: number
+): CodReconciliationRow[] {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT o.riderId AS riderId,
+              COUNT(*)      AS n,
+              SUM(CASE WHEN o.paid IS NULL OR o.paid = 0
+                       THEN o.total
+                       ELSE o.total - o.paid END) AS expectedAmount,
+              SUM(CASE WHEN p.amountCollected IS NULL
+                       THEN 0
+                       ELSE p.amountCollected END) AS collectedAmount,
+              SUM(CASE WHEN p.amountCollected IS NULL
+                       THEN 1
+                       WHEN ABS(p.amountCollected - (CASE WHEN o.paid IS NULL OR o.paid = 0
+                                                          THEN o.total
+                                                          ELSE o.total - o.paid END)) > 0.5
+                       THEN 1
+                       ELSE 0 END) AS mismatchedOrders
+         FROM orders o
+         LEFT JOIN proof_of_delivery p ON p.orderId = o.id
+        WHERE o.companyId = ?
+          AND o.date = ?
+          AND o.deliveryMode != 'pathao'
+          AND o.status = 'delivered'
+          AND o.paymentMethod = 'cod'
+          AND o.riderId IS NOT NULL
+        GROUP BY o.riderId`
+    )
+    .all(companyId, date) as Array<{
+      riderId: number;
+      n: number;
+      expectedAmount: number;
+      collectedAmount: number;
+      mismatchedOrders: number;
+    }>;
+  const riders = getRiders();
+  const riderNameById = new Map(riders.map((r) => [r.id, r.name]));
+  return rows.map((r) => {
+    const expected = Number(r.expectedAmount ?? 0);
+    const collected = Number(r.collectedAmount ?? 0);
+    return {
+      riderId: r.riderId,
+      riderName: riderNameById.get(r.riderId) ?? `#${r.riderId}`,
+      totalDeliveredCodOrders: r.n,
+      expectedAmount: expected,
+      collectedAmount: collected,
+      discrepancy: +(expected - collected).toFixed(2),
+      mismatchedOrders: r.mismatchedOrders,
+    };
+  }).sort((a, b) => Math.abs(b.discrepancy) - Math.abs(a.discrepancy));
+}
+
+export interface OverrideFlaggedOrder {
+  orderId: number;
+  orderNo: string;
+  customerName: string;
+  customerPhone: string;
+  area: string;
+  total: number;
+  paymentMethod: string;
+  deliveredAt: string;
+  overrideReason: string;
+  overrideActor: string;
+  /** Whether the POD gate was bypassed without a photo + otp verified (i.e.
+   *  admin marked delivered despite incomplete POD, e.g. offline-rider
+   *  recovery). These need manual customer follow-up. */
+  podIncomplete: boolean;
+}
+
+/**
+ * Tenant-scoped list of orders delivered today where the dispatch audit
+ * trail shows admin override (e.g. from /api/orders/[id] PUT status
+ * delivered without a complete POD). Used by the dispatch board to
+ * highlight deliveries that need manual customer verification.
+ */
+export function getOverrideFlaggedOrders(
+  date: string,
+  companyId: number
+): OverrideFlaggedOrder[] {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT o.id AS orderId,
+              o.orderNo,
+              o.customerName,
+              o.customerPhone,
+              o.area,
+              o.total,
+              o.paymentMethod,
+              o.deliveredAt,
+              h.reason AS overrideReason,
+              h.actorName AS overrideActor,
+              h.actorType,
+              p.photoPath,
+              p.otpVerified,
+              p.amountCollected,
+              p.expectedAmount
+         FROM orders o
+         JOIN delivery_status_history h
+              ON h.orderId = o.id
+             AND h.toStatus = 'delivered'
+             AND h.reason LIKE 'admin_override_pod_bypass%'
+         LEFT JOIN proof_of_delivery p ON p.orderId = o.id
+        WHERE o.companyId = ?
+          AND o.date = ?
+          AND o.status = 'delivered'
+          AND h.actorType = 'admin'
+        GROUP BY o.id, h.id
+        ORDER BY h.createdAt DESC`
+    )
+    .all(companyId, date) as Array<{
+      orderId: number;
+      orderNo: string;
+      customerName: string;
+      customerPhone: string;
+      area: string;
+      total: number;
+      paymentMethod: string;
+      deliveredAt: string;
+      overrideReason: string;
+      overrideActor: string;
+      photoPath: string | null;
+      otpVerified: number | null;
+      amountCollected: number | null;
+      expectedAmount: number | null;
+    }>;
+  return rows.map((r) => ({
+    orderId: r.orderId,
+    orderNo: r.orderNo,
+    customerName: r.customerName,
+    customerPhone: r.customerPhone,
+    area: r.area,
+    total: r.total,
+    paymentMethod: r.paymentMethod,
+    deliveredAt: r.deliveredAt,
+    overrideReason: r.overrideReason,
+    overrideActor: r.overrideActor,
+    podIncomplete:
+      !r.photoPath ||
+      !r.otpVerified ||
+      (r.paymentMethod === "cod" && r.amountCollected == null),
+  }));
+}
+
+export interface OfflineQueuedSummary {
+  /** Number of deliveries waiting in the offline queue (per-rider count from
+   *  delivery_status_history where actorType='rider' and the order is still
+   *  not at 'delivered'). This is a server-side approximation; the
+   *  ground-truth IndexedDB queue lives on the device. */
+  riderId: number;
+  riderName: string;
+  pending: number;
+}
+
+/**
+ * Tenant-scoped approximation of "orders awaiting sync from a rider's
+ * offline queue". We count orders in this tenant that have a recent rider
+ * status-history entry but whose server-side status hasn't yet reached
+ * 'delivered'. This is the dispatcher's view; the rider's own queue is the
+ * source of truth.
+ */
+export function getOfflineQueuedSummary(
+  date: string,
+  companyId: number
+): OfflineQueuedSummary[] {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT o.riderId AS riderId,
+              COUNT(DISTINCT o.id) AS pending
+         FROM orders o
+         JOIN delivery_status_history h
+              ON h.orderId = o.id
+             AND h.actorType = 'rider'
+             AND h.toStatus IN ('preparing', 'out-for-delivery')
+        WHERE o.companyId = ?
+          AND o.date = ?
+          AND o.status NOT IN ('delivered', 'cancelled', 'returned')
+        GROUP BY o.riderId`
+    )
+    .all(companyId, date) as Array<{ riderId: number; pending: number }>;
+  const riders = getRiders();
+  const nameById = new Map(riders.map((r) => [r.id, r.name]));
+  return rows.map((r) => ({
+    riderId: r.riderId,
+    riderName: nameById.get(r.riderId) ?? `#${r.riderId}`,
+    pending: r.pending,
+  }));
 }
 
 // --- Auto-assign by cluster (v1 grid) ---

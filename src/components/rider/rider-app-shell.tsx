@@ -6,14 +6,29 @@ import { LogOut, Moon, Sun, HelpCircle, Wifi, WifiOff } from "lucide-react";
 import { useAuth } from "@/lib/rider-auth";
 import { useTheme } from "@/components/theme-provider";
 import { RiderTabBar } from "./rider-tab-bar";
+import { RiderAvatar } from "./rider-avatar";
 
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
+function DropifyMark() {
+  return (
+    <div
+      aria-label="Dropify"
+      style={{
+        display: "inline-flex",
+        alignItems: "baseline",
+        gap: 2,
+        fontWeight: 800,
+        fontSize: 16,
+        letterSpacing: -0.3,
+        color: "var(--color-brand)",
+        flexShrink: 0,
+      }}
+    >
+      <span>Dropify</span>
+      <span style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-muted)", marginLeft: 4 }}>
+        RIDER
+      </span>
+    </div>
+  );
 }
 
 export function RiderAppShell({
@@ -86,24 +101,8 @@ export function RiderAppShell({
             minHeight: 56,
           }}
         >
-          <div
-            aria-hidden
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: "50%",
-              background: "var(--tint-brand-18)",
-              color: "var(--color-brand)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontWeight: 700,
-              fontSize: 14,
-              flexShrink: 0,
-            }}
-          >
-            {initials(session?.riderName ?? "?")}
-          </div>
+          <DropifyMark />
+          <RiderAvatar riderId={session?.riderId ?? null} name={session?.riderName ?? ""} size={36} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div
               style={{
@@ -219,8 +218,6 @@ export function RiderAppShell({
         style={{
           flex: 1,
           padding: "16px 16px 96px",
-          maxWidth: 720,
-          margin: "0 auto",
           width: "100%",
           boxSizing: "border-box",
         }}

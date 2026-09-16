@@ -139,6 +139,24 @@ export interface Rider {
   /** Optional soft cap on the number of stops per shift. Null = no cap. */
   maxStops: number | null;
   createdAt: string;
+  /** Bcrypt hash ($2a$10$…) of the rider's login PIN. Empty when unset. */
+  pinHash: string;
+  /** When true, the rider must change their PIN on the next successful login. */
+  tempPin: boolean;
+  /**
+   * Lifecycle state of the rider account itself, independent of dispatch
+   * status (`status` above). A rider can be `active` (eligible for jobs) and
+   * `suspended` (locked out of login) at the same time.
+   *  - `pending_verification` : account created but admin hasn't approved.
+   *  - `active`               : can log in and receive deliveries.
+   *  - `suspended`            : login blocked; existing sessions revoked.
+   *  - `deactivated`          : removed from the dispatch pool permanently.
+   */
+  accountStatus: "pending_verification" | "active" | "suspended" | "deactivated";
+  /** ISO timestamp of the last successful login. Empty when never. */
+  lastLoginAt: string;
+  /** Relative path under cwd() to the rider's avatar image on disk. Empty when none. */
+  avatarPath: string;
 }
 
 export type OrderStatus =
@@ -217,6 +235,9 @@ export interface Order {
   cluster: "DHK-E" | "DHK-NW" | "DHK-CW" | "DHK-SE" | null;
   /** Sub-cluster (route) the order belongs to, derived from the area at create time. */
   subCluster: string | null;
+  /** Public customer-facing tracking id (DRO-XXXX-XXXX). Empty until the
+   *  first transition into out-for-delivery. */
+  trackingCode: string;
   updatedAt: string;
 }
 

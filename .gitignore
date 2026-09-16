@@ -17,6 +17,11 @@ data/*.bak
 data/*.db
 data/*.db-shm
 data/*.db-wal
+data/rider-jwt-secret
+data/pod/
+data/outbox/
+data/rider-avatars/
+data/queue-backup-*.json
 
 # Logs
 npm-debug.log*
