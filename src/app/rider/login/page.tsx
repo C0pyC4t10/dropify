@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/rider-auth";
 
@@ -12,17 +12,18 @@ export default function RiderLoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (status === "authed" && session) {
+      router.replace(session.mustChangePin ? "/rider/change-pin" : "/rider/orders");
+    }
+  }, [status, session, router]);
+
   if (status === "loading") {
     return (
       <main style={{ padding: 24, color: "var(--color-text-muted)", textAlign: "center" }}>
         Loading…
       </main>
     );
-  }
-  if (status === "authed" && session) {
-    if (typeof window !== "undefined") {
-      router.replace(session.mustChangePin ? "/rider/change-pin" : "/rider/orders");
-    }
   }
 
   async function onSubmit(e: React.FormEvent) {

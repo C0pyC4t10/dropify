@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/rider-auth";
 import { riderFetch } from "@/lib/rider-api";
@@ -14,11 +14,14 @@ export default function RiderChangePinPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (status === "guest") {
+      router.replace("/rider/login");
+    }
+  }, [status, router]);
+
   if (status === "loading") return <main style={{ padding: 24 }}>Loading…</main>;
-  if (status === "guest") {
-    if (typeof window !== "undefined") router.replace("/rider/login");
-    return null;
-  }
+  if (status === "guest") return null;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
