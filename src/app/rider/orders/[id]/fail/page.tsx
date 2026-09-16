@@ -19,7 +19,7 @@ export default function RiderFailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [coords, setCoords] = useState<{ lat: number | null; lng: number | null }>({ lat: null, lng: null });
-  const [online, setOnline] = useState<boolean>(typeof navigator === "undefined" ? true : navigator.onLine);
+  const [online, setOnline] = useState<boolean>(true);
 
   useEffect(() => {
     if (status === "guest") router.replace("/rider/login");

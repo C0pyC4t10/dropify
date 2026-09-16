@@ -63,7 +63,7 @@ export default function RiderOrdersPage() {
   const [pending, setPending] = useState<QueuedAction[]>([]);
   const [pendingPhotos, setPendingPhotos] = useState(0);
   const [pendingSize, setPendingSize] = useState(0);
-  const [online, setOnline] = useState<boolean>(typeof navigator === "undefined" ? true : navigator.onLine);
+  const [online, setOnline] = useState<boolean>(true);
 
   useEffect(() => {
     if (status === "guest") router.replace("/rider/login");

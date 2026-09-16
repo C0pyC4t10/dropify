@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
+import { ThemeBootstrapScript } from "@/components/theme-bootstrap-script";
 import { ActiveCompanyProvider } from "@/lib/active-company";
 import { ChromeLayout } from "@/components/chrome-layout";
 
@@ -30,12 +31,8 @@ export const viewport: Viewport = {
 // Prevent flash of wrong theme by hinting dark before paint. The localStorage
 // key changed from the legacy "bazarey-theme" to "dropify-theme" — the legacy
 // key is read as a one-shot fallback so existing users keep their preference.
-//
-// Rendered as a raw <script> inside <head> (not <Script strategy="beforeInteractive"/>)
-// because next/script renders a <script> element into the React tree, which
-// React 19 flags in dev with "Encountered a script tag while rendering React
-// component". The raw script runs synchronously when the HTML parser hits it,
-// well before React hydration — same anti-flash effect, no warning.
+// Injected imperatively by <ThemeBootstrapScript/> so React 19 doesn't warn
+// about a <script> element in the React tree.
 const themeBootstrap = `(function(){try{var t=localStorage.getItem('dropify-theme')||localStorage.getItem('bazarey-theme');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t;}}catch(e){}})();`;
 
 export default function RootLayout({
@@ -45,10 +42,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
-      </head>
       <body>
+        <ThemeBootstrapScript />
         <ThemeProvider>
           <ActiveCompanyProvider>
             <ChromeLayout>{children}</ChromeLayout>

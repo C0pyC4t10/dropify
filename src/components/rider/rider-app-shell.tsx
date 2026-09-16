@@ -43,9 +43,7 @@ export function RiderAppShell({
   const router = useRouter();
   const { session, logout } = useAuth();
   const { theme, toggle } = useTheme();
-  const [online, setOnline] = useState<boolean>(
-    typeof navigator === "undefined" ? true : navigator.onLine,
-  );
+  const [online, setOnline] = useState<boolean>(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
