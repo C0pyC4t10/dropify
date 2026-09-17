@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/rider-auth";
 import { riderGetJson } from "@/lib/rider-api";
+import { RiderOrderMap } from "@/components/rider/rider-order-map";
 
 interface OrderDetail {
   id: number;
@@ -102,26 +103,19 @@ export default function RiderOrderDetailPage() {
             <Row label="Collect on delivery" value={`৳${order.codDue.toLocaleString()}`} highlight />
           )}
           {order.note && <Row label="Note" value={order.note} />}
-          {(() => {
-            // Prefer the address string — Google Maps resolves the exact
-            // pin (building, doorway) rather than a fuzzy point. Fall back
-            // to lat/lng when we have no address text on file.
-            const mapsQuery =
-              order.address && order.address.trim().length > 0
-                ? encodeURIComponent(`${order.address}, ${order.area}`)
-                : order.lat != null && order.lng != null
-                  ? `${order.lat},${order.lng}`
-                  : null;
-            if (!mapsQuery) return null;
-            return (
-              <a href={`https://www.google.com/maps/dir/?api=1&destination=${mapsQuery}`}
-                 target="_blank" rel="noreferrer"
-                 style={mapsButtonStyle}>
-                Open in Google Maps
-              </a>
-            );
-          })()}
         </div>
+
+        {order.lat != null && order.lng != null && (
+          <div style={cardStyle}>
+            <div style={{ fontWeight: 600, marginBottom: 10 }}>Drop-off location</div>
+            <RiderOrderMap
+              pin={{ lat: order.lat, lng: order.lng }}
+              orderNo={order.orderNo}
+              customerName={order.customerName}
+              address={`${order.address}${order.area ? `, ${order.area}` : ""}`}
+            />
+          </div>
+        )}
 
         <div style={cardStyle}>
           <div style={{ fontWeight: 600, marginBottom: 8 }}>Items</div>
