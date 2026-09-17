@@ -3,16 +3,22 @@
 import { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Printer, ArrowLeft, Bike, Receipt as ReceiptIcon, Edit3, Plus, Truck, FileText, TruckIcon } from "lucide-react";
+import { Printer, ArrowLeft, Bike, Receipt as ReceiptIcon, Edit3, Plus, Truck, FileText, TruckIcon, MessageSquare, Eye } from "lucide-react";
 import type { Order, Rider, Settings, Customer, Product } from "@/lib/types";
 import type { DeliveryPartner, InvoiceFormat } from "@/lib/delivery-partners";
 import { STATUS_LABELS, PAYMENT_LABELS, formatMoney, formatDateTime } from "@/lib/ui";
 import { StatusBadge } from "@/components/status-badge";
 import { StatusStepper } from "@/components/status-stepper";
+import { TrackingCodeChip } from "@/components/tracking-code-chip";
 import { EditOrderModal } from "@/components/edit-order-modal";
 import { CancelOrderModal } from "@/components/cancel-order-modal";
 import { ReturnOrderModal } from "@/components/return-order-modal";
 import { BKASH_NUMBER } from "@/lib/bkash-qr";
+
+function isAdminMode(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.cookie.split("; ").some((c) => c.trim() === "dropify_admin_mode=1");
+}
 
 // Print-specific CSS: forces the entire invoice onto one A4 page.
 // Content is sized to fill the page (no big blank gap at the bottom)
@@ -95,6 +101,17 @@ function OrderDetailInner() {
   const [loading, setLoading] = useState(true);
   const [printingPos, setPrintingPos] = useState(false);
   const [posMsg, setPosMsg] = useState<string>("");
+  const [adminMode, setAdminMode] = useState<boolean>(false);
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpMsg, setOtpMsg] = useState<string>("");
+
+  useEffect(() => {
+    // Hydration-time read of the admin cookie — it's safe to call
+    // setState synchronously here because the value is just a Boolean
+    // for UI gating; no cascading renders are possible.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAdminMode(isAdminMode());
+  }, []);
   const [showEdit, setShowEdit] = useState(false);
   const [showCancel, setShowCancel] = useState(false);
   const [showReturn, setShowReturn] = useState(false);
@@ -192,6 +209,28 @@ function OrderDetailInner() {
     }
   };
 
+  const sendOtp = async () => {
+    setOtpSending(true);
+    setOtpMsg("");
+    try {
+      const res = await fetch(`/api/admin/orders/${id}/send-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actorName: "operator" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `status ${res.status}`);
+      setOtpMsg(
+        `OTP sent to customer ••${data.last4} — expires ${new Date(data.expiresAt).toLocaleTimeString()}`
+      );
+      setTimeout(() => setOtpMsg(""), 5000);
+    } catch (e) {
+      setOtpMsg(e instanceof Error ? e.message : "Failed to send OTP");
+    } finally {
+      setOtpSending(false);
+    }
+  };
+
   if (loading) {
     return <div style={{ textAlign: "center", padding: "60px 0", color: "var(--text-muted)" }}>Loading...</div>;
   }
@@ -210,14 +249,29 @@ function OrderDetailInner() {
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <Link href="/orders" className="btn btn-secondary" onClick={(e) => { e.preventDefault(); goBack(); }}><ArrowLeft size={15} /></Link>
           <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>
-            {order.orderNo} <StatusBadge status={order.status} />
+            {order.orderNo} <StatusBadge status={order.status} /> <TrackingCodeChip code={order.trackingCode} />
           </h1>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           {posMsg && (
             <span style={{ fontSize: 12, color: posMsg.startsWith("Failed") || posMsg.startsWith("Error") ? "var(--accent-red)" : "var(--accent-green)" }}>
               {posMsg}
             </span>
+          )}
+          {otpMsg && (
+            <span style={{ fontSize: 12, color: otpMsg.startsWith("Failed") || otpMsg.startsWith("Error") ? "var(--accent-red)" : "var(--accent-green)" }}>
+              {otpMsg}
+            </span>
+          )}
+          {adminMode && (order.status === "preparing" || order.status === "out-for-delivery") && (
+            <button
+              className="btn btn-secondary"
+              onClick={sendOtp}
+              disabled={otpSending}
+              title="Send the delivery code to the customer's phone"
+            >
+              <MessageSquare size={14} /> {otpSending ? "Sending…" : "Send OTP"}
+            </button>
           )}
           <Link href="/orders/new" className="btn btn-secondary" style={{ textDecoration: "none" }}>
             <Plus size={15} /> New Order
@@ -227,6 +281,17 @@ function OrderDetailInner() {
           </button>
           {!cancelled && (
             <>
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  const el = document.querySelector(".print-area");
+                  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+                title="Scroll to the invoice"
+                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                <Eye size={15} /> Preview invoice
+              </button>
               <button className="btn btn-amber" onClick={printPos} disabled={printingPos}>
                 <ReceiptIcon size={15} /> {printingPos ? "Printing..." : "Print to POS"}
               </button>

@@ -131,6 +131,9 @@ export default function AdminConsolePage() {
         <NavTile href="/admin/companies" icon={<Building2 size={18} />} label="Companies" count={t.companies} />
         <NavTile href="/admin/categories" icon={<Tag size={18} />} label="Categories" count={t.categories} />
         <NavTile href="/admin/units" icon={<Ruler size={18} />} label="Units" count={t.units} />
+        <NavTile href="/admin/riders" icon={<Truck size={18} />} label="Rider management" count={t.riders} hideCount />
+        <NavTile href="/admin/dispatch" icon={<Activity size={18} />} label="Dispatch (today)" count={t.delivered} hideCount />
+        <NavTile href="/admin/cod" icon={<Wallet size={18} />} label="COD reconciliation" count={0} hideCount />
         <NavTile
           href="/admin/design-system"
           icon={<BookOpen size={18} />}

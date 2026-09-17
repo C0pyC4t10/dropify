@@ -1,5 +1,13 @@
 import { NextResponse } from "next/server";
-import { getOrder, updateOrder, setOrderStatus, assignRider, deleteOrder } from "@/lib/db";
+import {
+  getOrder,
+  updateOrder,
+  setOrderStatus,
+  assignRider,
+  deleteOrder,
+  insertDeliveryStatusHistory,
+  getProofOfDelivery,
+} from "@/lib/db";
 import { getCompanyIdFromRequest } from "@/lib/tenant";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -43,7 +51,16 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     const id = Number(idParam);
     const data = await request.json();
     let order;
+    let fromStatus: string | undefined;
+    let adminActorName = "admin";
+    if (typeof data.actorName === "string" && data.actorName.trim()) {
+      adminActorName = data.actorName.trim().slice(0, 100);
+    }
     if (data.status) {
+      // Snapshot the status before mutating so the audit row records the
+      // legal from→to transition the admin just performed.
+      const before = getOrder(id, companyId);
+      fromStatus = before?.status;
       // Both "cancelled" and "returned" carry a reason string. The DB
       // function (setOrderStatus) picks the right one based on status —
       // it ignores cancelReason unless the transition is into "cancelled".
@@ -55,6 +72,29 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       order = updateOrder(id, data, companyId);
     }
     if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    if (data.status && fromStatus) {
+      let historyReason = "";
+      if (data.status === "delivered") {
+        const pod = getProofOfDelivery(id);
+        const podComplete =
+          pod &&
+          pod.photoPath &&
+          pod.otpVerified &&
+          (order.paymentMethod !== "cod" || pod.amountCollected !== null);
+        if (!podComplete) {
+          historyReason = "admin_override_pod_bypass";
+        }
+      }
+      insertDeliveryStatusHistory({
+        orderId: id,
+        fromStatus,
+        toStatus: data.status,
+        actorType: "admin",
+        actorId: 0,
+        actorName: adminActorName,
+        reason: historyReason,
+      });
+    }
     return NextResponse.json(order);
   } catch (error) {
     const msg = String(error);

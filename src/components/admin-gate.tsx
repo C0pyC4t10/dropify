@@ -24,10 +24,16 @@ function writeStored(value: boolean) {
  * accidentally landing in the console.
  *
  * In production deployments you'd swap this for SSO / OIDC / RBAC.
+ *
+ * UX note: the input is purely a "you're sure?" confirmation, NOT a real
+ * password. Empty input + Enter / tap "Continue" unlocks (matches the
+ * legacy behavior). The pre-filled default is the word "dropify" so
+ * mobile operators don't have to type anything — they can just tap the
+ * button and go.
  */
 export function AdminGate({ children }: { children: ReactNode }) {
   const [unlocked, setUnlocked] = useState<boolean | null>(null);
-  const [pin, setPin] = useState("");
+  const [pin, setPin] = useState("dropify");
 
   useEffect(() => {
     // Defer to next tick so the synchronous initial state doesn't trip the
@@ -37,6 +43,16 @@ export function AdminGate({ children }: { children: ReactNode }) {
     }, 0);
     return () => clearTimeout(t);
   }, []);
+
+  function unlock(e?: React.FormEvent | React.MouseEvent) {
+    e?.preventDefault?.();
+    // Empty input OR "dropify" (case-insensitive) unlocks. The default
+    // value is "dropify" so mobile operators don't need to type anything.
+    if (pin.trim().toLowerCase() === "dropify" || pin.trim().length === 0) {
+      writeStored(true);
+      setUnlocked(true);
+    }
+  }
 
   if (unlocked === null) {
     return <div style={{ color: "var(--text-muted)" }}>Loading…</div>;
@@ -57,35 +73,36 @@ export function AdminGate({ children }: { children: ReactNode }) {
           Admin console locked
         </h1>
         <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 20px" }}>
-          Confirm to unlock — anyone with this URL can manage every company,
-          category, and unit on the platform.
+          Tap below to open the admin console for this browser. No password
+          needed — this is a local soft-gate, not real auth.
         </p>
         <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            // The "pin" field is intentionally not enforced server-side —
-            // it's a typed confirmation, not a secret. Dropify Ops is
-            // designed to be self-hosted by trusted operators.
-            if (pin.toLowerCase() === "dropify" || pin.length === 0) {
-              writeStored(true);
-              setUnlocked(true);
-            }
-          }}
+          onSubmit={unlock}
           style={{ display: "flex", flexDirection: "column", gap: 10 }}
         >
           <input
+            type="text"
             value={pin}
             onChange={(e) => setPin(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") unlock(e);
+            }}
             placeholder="Type dropify to confirm"
             autoFocus
             style={{ textAlign: "center" }}
           />
-          <button type="submit" className="btn btn-primary">
-            <Unlock size={14} /> Unlock admin console
+          <button
+            type="submit"
+            className="btn btn-primary"
+            onClick={unlock}
+            style={{ minHeight: 48 }}
+          >
+            <Unlock size={14} /> Continue to admin
           </button>
         </form>
         <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 14 }}>
-          Tip: leave the box blank and click unlock to confirm without typing.
+          The pre-filled value above is a confirmation, not a secret. Just
+          press Enter or tap the button to continue.
         </div>
       </div>
     );
@@ -96,14 +113,11 @@ export function AdminGate({ children }: { children: ReactNode }) {
 /** Used by the /admin layout to render a "lock console" button when
  *  admin mode is active. */
 export function AdminLockButton() {
-  const [, force] = useState(0);
   return (
     <button
       className="btn btn-secondary"
       onClick={() => {
         writeStored(false);
-        force((n) => n + 1);
-        // Force a re-render of AdminGate via location reload (cheap + reliable).
         if (typeof window !== "undefined") window.location.reload();
       }}
       title="Lock the admin console for this browser"
