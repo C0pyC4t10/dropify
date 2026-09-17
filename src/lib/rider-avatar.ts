@@ -14,8 +14,17 @@ export function resolveRiderAvatarPath(riderId: number, avatarPath: string): str
   return resolved;
 }
 
-/** Public URL a rider's avatar can be fetched at. Returns null if no avatar. */
+/** Public URL a rider's avatar can be fetched at, with a cache-busting
+ *  query string derived from the file's mtime so the URL changes whenever
+ *  the rider replaces their photo. Returns null if no avatar is set. */
 export function riderAvatarUrl(riderId: number, avatarPath: string): string | null {
-  if (!resolveRiderAvatarPath(riderId, avatarPath)) return null;
-  return `/api/rider/avatar/${riderId}`;
+  const abs = resolveRiderAvatarPath(riderId, avatarPath);
+  if (!abs) return null;
+  let v = "0";
+  try {
+    v = Math.floor(fs.statSync(abs).mtimeMs).toString(36);
+  } catch {
+    /* ignore — fall back to "0" which is harmless */
+  }
+  return `/api/rider/avatar/${riderId}?v=${v}`;
 }

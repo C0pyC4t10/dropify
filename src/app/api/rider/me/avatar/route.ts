@@ -67,8 +67,13 @@ export async function POST(request: NextRequest) {
   const outPath = path.join(outDir, outName);
 
   try {
+    // fit: "inside" preserves the user's original framing — sharp's "attention"
+    // smart-crop would re-crop on upload and the circle display would crop
+    // again, double-trimming faces that sit off-center. Letting the image keep
+    // its aspect ratio means the only crop the rider sees is the unavoidable
+    // circle clip, which is symmetric.
     await pipeline
-      .resize({ width: AVATAR_MAX_DIM, height: AVATAR_MAX_DIM, fit: "cover", position: "attention" })
+      .resize({ width: AVATAR_MAX_DIM, height: AVATAR_MAX_DIM, fit: "inside", withoutEnlargement: true })
       .jpeg({ quality: 86, mozjpeg: true })
       .withMetadata({ exif: {} })
       .toFile(outPath);

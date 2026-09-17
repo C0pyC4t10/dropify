@@ -197,6 +197,15 @@ function Tile({ label, value, accent, small }: { label: string; value: number | 
 
 function OrderCard({ order }: { order: OrderSummary }) {
   const router = useRouter();
+  // Prefer the address string — Google Maps will resolve the exact pin
+  // (building, doorway) rather than a fuzzy point. Fall back to lat/lng
+  // when we have no address text on file.
+  const mapsQuery =
+    order.address && order.address.trim().length > 0
+      ? encodeURIComponent(`${order.address}, ${order.area}`)
+      : order.lat != null && order.lng != null
+        ? `${order.lat},${order.lng}`
+        : null;
   return (
     <button
       onClick={() => router.push(`/rider/orders/${order.id}`)}
@@ -235,9 +244,9 @@ function OrderCard({ order }: { order: OrderSummary }) {
         >
           <Phone size={14} aria-hidden /> Call
         </a>
-        {order.lat != null && order.lng != null && (
+        {mapsQuery && (
           <a
-            href={`https://www.google.com/maps/dir/?api=1&destination=${order.lat},${order.lng}`}
+            href={`https://www.google.com/maps/dir/?api=1&destination=${mapsQuery}`}
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}

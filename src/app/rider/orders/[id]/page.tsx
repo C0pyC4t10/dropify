@@ -102,11 +102,25 @@ export default function RiderOrderDetailPage() {
             <Row label="Collect on delivery" value={`৳${order.codDue.toLocaleString()}`} highlight />
           )}
           {order.note && <Row label="Note" value={order.note} />}
-          <a href={`https://www.google.com/maps/dir/?api=1&destination=${order.lat},${order.lng}`}
-             target="_blank" rel="noreferrer"
-             style={mapsButtonStyle}>
-            Open in Google Maps
-          </a>
+          {(() => {
+            // Prefer the address string — Google Maps resolves the exact
+            // pin (building, doorway) rather than a fuzzy point. Fall back
+            // to lat/lng when we have no address text on file.
+            const mapsQuery =
+              order.address && order.address.trim().length > 0
+                ? encodeURIComponent(`${order.address}, ${order.area}`)
+                : order.lat != null && order.lng != null
+                  ? `${order.lat},${order.lng}`
+                  : null;
+            if (!mapsQuery) return null;
+            return (
+              <a href={`https://www.google.com/maps/dir/?api=1&destination=${mapsQuery}`}
+                 target="_blank" rel="noreferrer"
+                 style={mapsButtonStyle}>
+                Open in Google Maps
+              </a>
+            );
+          })()}
         </div>
 
         <div style={cardStyle}>

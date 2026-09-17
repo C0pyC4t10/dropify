@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth, useOnlineFlush } from "@/lib/rider-auth";
 import { riderFetch, riderGetJson } from "@/lib/rider-api";
@@ -11,11 +11,9 @@ import {
   pendingBytes,
   pendingPhotoCount,
   QUEUE_MAX_ITEMS,
-  QUEUE_MAX_PHOTO_BYTES,
 } from "@/lib/rider-offline-queue";
-import { downscaleImage, type DownscaleResult } from "@/lib/image-downscale";
 
-type Step = "ack" | "on-way" | "photo" | "otp" | "cod" | "delivered";
+type Step = "ack" | "on-way" | "otp" | "cod" | "delivered";
 type OtpStep = "idle" | "sending" | "ready" | "verifying" | "verified" | "wrong";
 
 interface OrderLite {
@@ -39,7 +37,6 @@ interface PodFromApi {
 }
 
 interface PodState {
-  photoUploaded: boolean;
   otpStep: OtpStep;
   otpLast4: string | null;
   amountCollected: string;
@@ -55,7 +52,6 @@ export default function RiderDeliverPage() {
   const [order, setOrder] = useState<OrderLite | null>(null);
   const [step, setStep] = useState<Step>("ack");
   const [pod, setPod] = useState<PodState>({
-    photoUploaded: false,
     otpStep: "idle",
     otpLast4: null,
     amountCollected: "",
@@ -68,8 +64,6 @@ export default function RiderDeliverPage() {
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingPhotoN, setPendingPhotoN] = useState(0);
   const [pendingBytesN, setPendingBytesN] = useState(0);
-  const [photoDownscaled, setPhotoDownscaled] = useState<DownscaleResult | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (status === "guest") router.replace("/rider/login");
@@ -83,7 +77,6 @@ export default function RiderDeliverPage() {
         setOrder(res.order);
         setPod((p) => ({
           ...p,
-          photoUploaded: !!res.pod?.photoPath,
           otpStep: res.pod?.otpVerified ? "verified" : "idle",
           amountCollected: res.pod?.amountCollected?.toString() ?? "",
           codMismatch:
@@ -93,7 +86,7 @@ export default function RiderDeliverPage() {
         }));
         if (res.order.status === "confirmed") setStep("ack");
         else if (res.order.status === "preparing") setStep("on-way");
-        else if (res.order.status === "out-for-delivery") setStep("photo");
+        else if (res.order.status === "out-for-delivery") setStep("otp");
         else router.replace(`/rider/orders/${orderId}`);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed");
@@ -188,8 +181,6 @@ export default function RiderDeliverPage() {
         reason: reason ?? "",
         lat: coords.lat,
         lng: coords.lng,
-        photoBlob: photoDownscaled?.blob,
-        photoMime: photoDownscaled?.mime,
         amountCollected: queuedAmount,
         otpSkippedOffline: otpSkipped,
       });
@@ -198,7 +189,7 @@ export default function RiderDeliverPage() {
         return;
       }
       await refreshQueue();
-      setError("You&apos;re offline — the photo, COD amount, and delivery status will sync when you&apos;re back online. Admin will resolve any OTP-gate hold.");
+      setError("You&apos;re offline — the COD amount and delivery status will sync when you&apos;re back online. Admin will resolve any OTP-gate hold.");
       router.replace(`/rider/orders/${orderId}`);
       return;
     }
@@ -226,66 +217,12 @@ export default function RiderDeliverPage() {
         return;
       }
       if (toStatus === "preparing") setStep("on-way");
-      else if (toStatus === "out-for-delivery") setStep("photo");
+      else if (toStatus === "out-for-delivery") setStep("otp");
       setOrder((o) => o ? { ...o, status: data.order?.status ?? toStatus, statusLabel: data.order?.statusLabel ?? toStatus } : o);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
     } finally {
       setSubmitting(false);
-    }
-  }
-
-  async function capturePhoto(file: File) {
-    if (!accessToken) return;
-    setError(null);
-    await refreshCoords();
-    try {
-      const down = await downscaleImage(file);
-      if (down.bytes > QUEUE_MAX_PHOTO_BYTES) {
-        setError(`Photo is too large after compression (${(down.bytes / 1024).toFixed(0)} KB). Try again.`);
-        return;
-      }
-      setPhotoDownscaled(down);
-
-      if (!online) {
-        // Offline: stash the blob in IndexedDB; flush will retry upload.
-        setPod((p) => ({ ...p, photoUploaded: true }));
-        setStep("otp");
-        return;
-      }
-
-      // Online path: try upload. Per the latest rider spec, photo is
-      // best-effort — a failed upload doesn't block delivery. OTP remains
-      // the only required verification gate.
-      const form = new FormData();
-      const ext = down.mime === "image/png" ? "png" : "jpg";
-      form.append("photo", new File([down.blob], `delivery.${ext}`, { type: down.mime }));
-      const res = await riderFetch(`/api/rider/orders/${orderId}/pod/photo`, {
-        method: "POST",
-        body: form,
-        accessToken,
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || `status ${res.status}`);
-      }
-      setPod((p) => ({ ...p, photoUploaded: true }));
-      setStep("otp");
-    } catch (err) {
-      // Photo capture is best-effort: whether the upload failed because
-      // we're offline (TypeError) or because the server returned a non-2xx,
-      // we let the rider continue. The photo, if any, lives in
-      // `photoDownscaled` and gets queued for retry on reconnect (offline
-      // case) or simply recorded as missing (online server-error case —
-      // admin will see no photoPath in the audit log and follow up).
-      const isOffline = err instanceof TypeError;
-      setError(
-        isOffline
-          ? "Photo capture dropped offline. Photo saved locally — it&apos;ll sync when you&apos;re back online."
-          : `Photo upload failed (${err instanceof Error ? err.message : "unknown"}). Delivery can proceed without it.`
-      );
-      setPod((p) => ({ ...p, photoUploaded: true }));
-      setStep("otp");
     }
   }
 
@@ -353,24 +290,23 @@ export default function RiderDeliverPage() {
     await refreshCoords();
     const amount = Number(pod.amountCollected);
     const queuedAmount = order?.paymentMethod === "cod" && Number.isFinite(amount) ? amount : null;
+    const otpSkipped = pod.otpStep !== "verified";
     const result = await enqueueAction({
-      id: `${orderId}-finalize-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      id: `${orderId}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       orderId,
       toStatus: "delivered",
       reason: "",
       lat: coords.lat,
       lng: coords.lng,
-      photoBlob: photoDownscaled?.blob,
-      photoMime: photoDownscaled?.mime,
       amountCollected: queuedAmount,
-      otpSkippedOffline: true,
+      otpSkippedOffline: otpSkipped,
     });
     if (!result.ok) {
       setError(`Couldn&apos;t queue: ${result.reason ?? "queue full"}. Find signal and try again.`);
       return;
     }
     await refreshQueue();
-    setError("Queued for sync. Photo, COD amount, and delivery status will replay when you&apos;re back online. Admin resolves the OTP-gate on sync.");
+    setError("Queued for sync. COD amount and delivery status will replay when you&apos;re back online. Admin resolves the OTP-gate on sync.");
     router.replace(`/rider/orders/${orderId}`);
   }
 
@@ -444,7 +380,7 @@ export default function RiderDeliverPage() {
           </div>
         )}
 
-        <Stepper current={step} requiresCod={requiresCod} photoUploaded={pod.photoUploaded} otpVerified={pod.otpStep === "verified"} />
+        <Stepper current={step} requiresCod={requiresCod} otpVerified={pod.otpStep === "verified"} />
 
         {step === "ack" && (
           <Block title="Acknowledge pickup">
@@ -465,45 +401,6 @@ export default function RiderDeliverPage() {
             <button disabled={submitting} onClick={() => transition("out-for-delivery")} style={primaryBtn}>
               {submitting ? "Saving…" : "On the way"}
             </button>
-          </Block>
-        )}
-
-        {step === "photo" && (
-          <Block title="Photo of delivery">
-            <p style={{ fontSize: 14, color: "var(--color-text-secondary)" }}>
-              {online
-                ? "Take a clear photo of the package at the door. Blurry photos get rejected."
-                : "Take a clear photo — it&apos;ll be downscaled and stored locally, then uploaded when you&apos;re back online."}
-            </p>
-            {pod.photoUploaded ? (
-              <div style={successBox}>
-                Photo captured
-                {!online && " — will sync when you&apos;re back online"}
-                {photoDownscaled && ` (${(photoDownscaled.bytes / 1024).toFixed(0)} KB)`}.
-              </div>
-            ) : (
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void capturePhoto(f);
-                }}
-                style={{ display: "none" }}
-              />
-            )}
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={pod.photoUploaded}
-              style={primaryBtn}
-            >
-              {pod.photoUploaded ? "Photo captured" : "Take photo"}
-            </button>
-            {pod.photoUploaded && (
-              <button onClick={() => setStep("otp")} style={secondaryBtn}>Continue</button>
-            )}
           </Block>
         )}
 
@@ -622,11 +519,10 @@ function OtpEntry({ onSubmit, verifying, last4 }: { onSubmit: (code: string) => 
   );
 }
 
-function Stepper({ current, requiresCod, photoUploaded, otpVerified }: { current: Step; requiresCod: boolean; photoUploaded: boolean; otpVerified: boolean }) {
+function Stepper({ current, requiresCod, otpVerified }: { current: Step; requiresCod: boolean; otpVerified: boolean }) {
   const baseSteps: Array<{ key: Step; label: string }> = [
     { key: "ack", label: "Pickup" },
     { key: "on-way", label: "On the way" },
-    { key: "photo", label: "Photo" },
     { key: "otp", label: "OTP" },
   ];
   if (requiresCod) baseSteps.push({ key: "cod", label: "Collect" });
@@ -635,7 +531,7 @@ function Stepper({ current, requiresCod, photoUploaded, otpVerified }: { current
   return (
     <div style={{ display: "flex", gap: 6, marginBottom: 14, overflowX: "auto" }}>
       {baseSteps.map((s, i) => {
-        const done = i < currentIdx || (s.key === "photo" && photoUploaded) || (s.key === "otp" && otpVerified);
+        const done = i < currentIdx || (s.key === "otp" && otpVerified);
         const current2 = i === currentIdx;
         return (
           <div
@@ -693,15 +589,7 @@ const primaryBtn: React.CSSProperties = {
   fontSize: 16,
   fontWeight: 700,
   cursor: "pointer",
-};
-const secondaryBtn: React.CSSProperties = {
-  padding: "10px 14px",
-  background: "transparent",
-  color: "var(--color-text)",
-  border: "1px solid var(--border)",
-  borderRadius: 8,
-  fontSize: 14,
-  cursor: "pointer",
+  minHeight: 48,
 };
 const inputStyle: React.CSSProperties = {
   padding: "12px 14px",
