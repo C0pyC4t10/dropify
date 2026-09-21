@@ -11,7 +11,7 @@ import {
   requireRider,
   riderGuardErrorResponse,
 } from "@/lib/auth/rider-guard";
-import { activeSmsAdapter } from "@/lib/notify/sms-console";
+import { activeSmsAdapter } from "@/lib/notify/sms-provider";
 import { consumeRateLimit } from "@/lib/auth/rider-rate-limit";
 
 export const dynamic = "force-dynamic";

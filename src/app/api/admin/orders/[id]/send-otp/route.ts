@@ -7,7 +7,7 @@ import {
 } from "@/lib/db";
 import { getCompanyIdFromRequest } from "@/lib/tenant";
 import { requireAdminCookie } from "@/lib/auth/admin-cookie-gate";
-import { activeSmsAdapter } from "@/lib/notify/sms-console";
+import { activeSmsAdapter } from "@/lib/notify/sms-provider";
 import { clientIp } from "@/lib/auth/rider-guard";
 
 export const dynamic = "force-dynamic";
