@@ -1,8 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { getOrders, setOrderStatus, deleteOrder, assignRider } from "@/lib/db";
 import { getCompanyIdFromRequest } from "@/lib/tenant";
+import { requireAdminCookie } from "@/lib/auth/admin-cookie-gate";
 
-export async function PUT(request: Request) {
+export async function PUT(request: NextRequest) {
+  const denied = requireAdminCookie(request);
+  if (denied) return denied;
   try {
     const companyId = await getCompanyIdFromRequest(request);
     const body = await request.json();
@@ -86,7 +89,9 @@ export async function PUT(request: Request) {
   }
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
+  const denied = requireAdminCookie(request);
+  if (denied) return denied;
   const companyId = await getCompanyIdFromRequest(request);
   // Convenience: list all orders client-side already calls /api/orders.
   // This route only handles bulk actions via PUT.

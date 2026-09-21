@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createOrder, getProducts, getCompany } from "@/lib/db";
 import { parseOrderFromText, type ParsedOrder, type ParsedOrderItem } from "@/lib/order-parser";
 import { getCompanyIdFromRequest } from "@/lib/tenant";
+import { requireAdminCookie } from "@/lib/auth/admin-cookie-gate";
 
 /**
  * POST /api/orders/parse
@@ -16,7 +17,9 @@ import { getCompanyIdFromRequest } from "@/lib/tenant";
  * Always lands in /orders/approval with the operator-selected source
  * (defaults to "manual") and status="pending-approval".
  */
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const denied = requireAdminCookie(request);
+  if (denied) return denied;
   try {
     const companyId = await getCompanyIdFromRequest(request);
     const company = getCompany(companyId);

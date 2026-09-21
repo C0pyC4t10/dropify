@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { geocodeAndRefineOrder, updateOrder } from "@/lib/db";
 import { getCompanyIdFromRequest } from "@/lib/tenant";
+import { requireAdminCookie } from "@/lib/auth/admin-cookie-gate";
 
 /**
  * POST /api/orders/[id]/geocode
@@ -11,9 +12,11 @@ import { getCompanyIdFromRequest } from "@/lib/tenant";
  * Returns: { updated, reason, before, after }
  */
 export async function POST(
-  request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const denied = requireAdminCookie(request);
+  if (denied) return denied;
   const companyId = await getCompanyIdFromRequest(request);
   const { id: idParam } = await params;
   const id = Number(idParam);

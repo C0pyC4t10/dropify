@@ -1,12 +1,15 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { getOrder, updateOrder } from "@/lib/db";
 import { getCompanyIdFromRequest } from "@/lib/tenant";
+import { requireAdminCookie } from "@/lib/auth/admin-cookie-gate";
 
 // Admin endpoint to backdate an order's confirmedAt / deliveredAt timestamps.
 // This is needed for one-time data recovery when restoring historical orders
 // whose status was set via the API but whose timestamps got stamped with
 // "now" instead of the original event time.
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const denied = requireAdminCookie(request);
+  if (denied) return denied;
   try {
     const companyId = await getCompanyIdFromRequest(request);
     const { id: idParam } = await params;

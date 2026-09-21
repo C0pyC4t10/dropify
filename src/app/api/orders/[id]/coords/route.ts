@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { updateOrder } from "@/lib/db";
 import { getCompanyIdFromRequest } from "@/lib/tenant";
+import { requireAdminCookie } from "@/lib/auth/admin-cookie-gate";
 
 /**
  * PUT /api/orders/[id]/coords
@@ -13,9 +14,11 @@ import { getCompanyIdFromRequest } from "@/lib/tenant";
  * centroid.
  */
 export async function PUT(
-  request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const denied = requireAdminCookie(request);
+  if (denied) return denied;
   const companyId = await getCompanyIdFromRequest(request);
   const { id: idParam } = await params;
   const id = Number(idParam);

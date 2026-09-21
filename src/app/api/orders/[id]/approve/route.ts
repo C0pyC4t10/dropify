@@ -1,16 +1,19 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { approveOrder, cancelPendingOrder } from "@/lib/db";
 import { pushStatusToWoo } from "@/lib/wp-sync";
 import { getCompanyIdFromRequest } from "@/lib/tenant";
+import { requireAdminCookie } from "@/lib/auth/admin-cookie-gate";
 
 /**
  * POST /api/orders/:id/approve
  *   body: { action: "approve" } OR { action: "cancel", reason?: string }
  */
 export async function POST(
-  request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const denied = requireAdminCookie(request);
+  if (denied) return denied;
   try {
     const companyId = await getCompanyIdFromRequest(request);
     const { id: idParam } = await params;

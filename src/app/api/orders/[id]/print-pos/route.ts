@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { spawn } from "child_process";
 import fs from "fs";
 import os from "os";
@@ -9,6 +9,7 @@ import sharp from "sharp";
 import { getOrder, getSettings, getRiders } from "@/lib/db";
 import { buildReceiptPng } from "@/lib/receipt-png";
 import { getCompanyIdFromRequest } from "@/lib/tenant";
+import { requireAdminCookie } from "@/lib/auth/admin-cookie-gate";
 
 /**
  * Run a CLI and capture its exit status / output. Never throws — always
@@ -49,7 +50,9 @@ function runCli(
   });
 }
 
-export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const denied = requireAdminCookie(_);
+  if (denied) return denied;
   const debugLog: string[] = [];
   const log = (msg: string) => {
     console.log("[print-pos]", msg);

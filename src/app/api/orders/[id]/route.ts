@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import {
   getOrder,
   updateOrder,
@@ -9,8 +9,11 @@ import {
   getProofOfDelivery,
 } from "@/lib/db";
 import { getCompanyIdFromRequest } from "@/lib/tenant";
+import { requireAdminCookie } from "@/lib/auth/admin-cookie-gate";
 
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const denied = requireAdminCookie(request);
+  if (denied) return denied;
   const companyId = await getCompanyIdFromRequest(request);
   const { id: idParam } = await params;
   const order = getOrder(Number(idParam), companyId);
@@ -18,7 +21,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   return NextResponse.json(order);
 }
 
-export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const denied = requireAdminCookie(request);
+  if (denied) return denied;
   try {
     const companyId = await getCompanyIdFromRequest(request);
     const { id: idParam } = await params;
@@ -44,7 +49,9 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   }
 }
 
-export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const denied = requireAdminCookie(request);
+  if (denied) return denied;
   try {
     const companyId = await getCompanyIdFromRequest(request);
     const { id: idParam } = await params;
