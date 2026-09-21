@@ -17,7 +17,6 @@ import {
   X,
   Wallet,
   Building2,
-  ChevronDown,
   Shield,
   Tag,
   Ruler,
@@ -133,7 +132,6 @@ const NAV = [
   { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/finance", label: "Finance", icon: Wallet },
   { href: "/customers", label: "Customers", icon: Users },
-  { href: "/companies", label: "Switch", icon: Building2, isSwitch: true },
   { href: "/admin", label: "Admin", icon: Shield },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
@@ -148,9 +146,8 @@ const ADMIN_NAV = [
 export function Header({ className = "" }: { className?: string }) {
   const pathname = usePathname();
   const { theme, toggle } = useTheme();
-  const { activeCompany, companies, setActiveCompanyId } = useActiveCompany();
+  const { activeCompany } = useActiveCompany();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [switcherOpen, setSwitcherOpen] = useState(false);
 
   // The rider PWA renders its own sticky header + bottom tab bar via
   // <RiderAppShell>. Hide the admin chrome on /rider/* so a rider on
@@ -228,102 +225,6 @@ export function Header({ className = "" }: { className?: string }) {
               {companyName}
             </span>
           </Link>
-
-          {companies.length > 1 && (
-            <div style={{ position: "relative" }}>
-              <button
-                onClick={() => setSwitcherOpen((s) => !s)}
-                title="Switch company"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  background: "rgba(255,255,255,0.04)",
-                  border: "1px solid var(--border)",
-                  color: "var(--text-secondary)",
-                  borderRadius: 6,
-                  padding: "4px 8px",
-                  cursor: "pointer",
-                  fontSize: 11,
-                  fontWeight: 500,
-                }}
-              >
-                Switch
-                <ChevronDown
-                  size={12}
-                  style={{ transform: switcherOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s" }}
-                />
-              </button>
-              {switcherOpen && (
-                <>
-                  <div
-                    onClick={() => setSwitcherOpen(false)}
-                    style={{ position: "fixed", inset: 0, zIndex: 40 }}
-                  />
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: "calc(100% + 6px)",
-                      left: 0,
-                      minWidth: 220,
-                      background: "var(--bg-card)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 8,
-                      boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
-                      zIndex: 50,
-                      padding: 4,
-                    }}
-                  >
-                    {companies.map((c) => (
-                      <button
-                        key={c.id}
-                        onClick={() => {
-                          setSwitcherOpen(false);
-                          setActiveCompanyId(c.id);
-                        }}
-                        style={{
-                          display: "block",
-                          width: "100%",
-                          textAlign: "left",
-                          padding: "8px 10px",
-                          border: "none",
-                          background:
-                            c.id === activeCompany?.id ? "var(--tint-brand-18)" : "transparent",
-                          color: "var(--text-primary)",
-                          fontSize: 13,
-                          borderRadius: 6,
-                          cursor: "pointer",
-                          fontFamily: "inherit",
-                        }}
-                      >
-                        <div style={{ fontWeight: c.id === activeCompany?.id ? 600 : 500 }}>{c.name}</div>
-                        {c.tagline && (
-                          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                            {c.tagline}
-                          </div>
-                        )}
-                      </button>
-                    ))}
-                    <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />
-                    <Link
-                      href="/companies"
-                      onClick={() => setSwitcherOpen(false)}
-                      style={{
-                        display: "block",
-                        padding: "8px 10px",
-                        color: "var(--text-secondary)",
-                        textDecoration: "none",
-                        fontSize: 12,
-                        borderRadius: 6,
-                      }}
-                    >
-                      Manage companies…
-                    </Link>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
         </div>
 
         <div className="nav-desktop" style={{ marginLeft: 16, display: "flex", alignItems: "center" }}>
@@ -334,32 +235,6 @@ export function Header({ className = "" }: { className?: string }) {
           {NAV.map((item) => {
             const active = isActive(item.href);
             const Icon = item.icon;
-            // The "Switch" nav item points to /companies which is now a
-            // legacy listing — opening it just opens the switcher dropdown.
-            if ((item as { isSwitch?: boolean }).isSwitch) {
-              return (
-                <button
-                  key={item.href}
-                  onClick={() => setSwitcherOpen(true)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    color: "var(--text-secondary)",
-                    background: "transparent",
-                    border: "none",
-                    cursor: "pointer",
-                    fontSize: 13,
-                    fontWeight: 500,
-                    padding: "6px 10px",
-                    borderRadius: 6,
-                  }}
-                >
-                  <Icon size={16} />
-                  <span className="no-print">{item.label}</span>
-                </button>
-              );
-            }
             return (
               <Link
                 key={item.href}
@@ -471,12 +346,6 @@ export function Header({ className = "" }: { className?: string }) {
                 </Link>
               );
             })}
-            {companies.length > 1 && (
-              <Link href="/companies">
-                <Building2 size={18} />
-                Switch company
-              </Link>
-            )}
           </aside>
         </>
       )}

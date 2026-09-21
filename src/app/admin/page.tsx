@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -16,7 +16,9 @@ import {
   Activity,
   Plus,
   BookOpen,
+  ChevronDown,
 } from "lucide-react";
+import { useActiveCompany } from "@/lib/active-company";
 
 interface CompanyRow {
   id: number;
@@ -61,6 +63,9 @@ const formatMoney = (n: number) => `৳${Math.round(n).toLocaleString("en-IN")}`
 export default function AdminConsolePage() {
   const [data, setData] = useState<OverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const switcherRef = useRef<HTMLDivElement>(null);
+  const { companies, activeCompany, setActiveCompanyId } = useActiveCompany();
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -72,6 +77,26 @@ export default function AdminConsolePage() {
     }, 0);
     return () => clearTimeout(t);
   }, []);
+
+  // Close the switcher on outside click or Escape — mirrors the dropdown UX
+  // that used to live in the header.
+  useEffect(() => {
+    if (!switcherOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (switcherRef.current && !switcherRef.current.contains(e.target as Node)) {
+        setSwitcherOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setSwitcherOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [switcherOpen]);
 
   if (loading) {
     return <div style={{ color: "var(--text-muted)" }}>Loading console…</div>;
@@ -107,17 +132,106 @@ export default function AdminConsolePage() {
             Cross-company view. Manage every tenant from one place.
           </p>
         </div>
-        <Link href="/" className="btn btn-secondary">
-          <ArrowLeft size={15} /> Back
-        </Link>
-        <Link
-          href="/admin/companies"
-          className="btn btn-primary"
-          style={{ marginLeft: 8 }}
-        >
-          <Plus size={15} /> Add business
-        </Link>
-      </div>
+<Link href="/" className="btn btn-secondary">
+            <ArrowLeft size={15} /> Back
+          </Link>
+          {companies.length > 1 && (
+            <div ref={switcherRef} style={{ position: "relative", marginLeft: 8 }}>
+              <button
+                onClick={() => setSwitcherOpen((s) => !s)}
+                title="Switch which company's data you see"
+                aria-expanded={switcherOpen}
+                className="btn btn-secondary"
+                style={{ display: "flex", alignItems: "center", gap: 6 }}
+              >
+                <Building2 size={15} />
+                <span style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {activeCompany?.name ?? "Switch"}
+                </span>
+                <ChevronDown
+                  size={14}
+                  style={{
+                    transform: switcherOpen ? "rotate(180deg)" : "rotate(0)",
+                    transition: "transform 0.15s",
+                  }}
+                />
+              </button>
+              {switcherOpen && (
+                <div
+                  role="menu"
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 6px)",
+                    right: 0,
+                    minWidth: 240,
+                    background: "var(--bg-card)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
+                    zIndex: 60,
+                    padding: 4,
+                  }}
+                >
+                  {companies.map((c) => {
+                    const active = c.id === activeCompany?.id;
+                    return (
+                      <button
+                        key={c.id}
+                        role="menuitem"
+                        onClick={() => {
+                          setSwitcherOpen(false);
+                          setActiveCompanyId(c.id);
+                        }}
+                        style={{
+                          display: "block",
+                          width: "100%",
+                          textAlign: "left",
+                          padding: "8px 10px",
+                          border: "none",
+                          background: active ? "var(--tint-brand-18)" : "transparent",
+                          color: "var(--text-primary)",
+                          fontSize: 13,
+                          borderRadius: 6,
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        <div style={{ fontWeight: active ? 600 : 500 }}>{c.name}</div>
+                        {c.tagline && (
+                          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                            {c.tagline}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                  <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />
+                  <Link
+                    href="/admin/companies"
+                    onClick={() => setSwitcherOpen(false)}
+                    style={{
+                      display: "block",
+                      padding: "8px 10px",
+                      color: "var(--text-secondary)",
+                      textDecoration: "none",
+                      fontSize: 12,
+                      borderRadius: 6,
+                    }}
+                  >
+                    Manage companies…
+                  </Link>
+                </div>
+              )}
+            </div>
+          )}
+          <Link
+            href="/admin/companies"
+            className="btn btn-primary"
+            style={{ marginLeft: 8 }}
+          >
+            <Plus size={15} /> Add business
+          </Link>
+        </div>
 
       {/* Quick nav tiles */}
       <div
