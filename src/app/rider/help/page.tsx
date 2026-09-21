@@ -85,13 +85,13 @@ export default function RiderHelpPage() {
         </div>
         <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
           <a
-            href="tel:+8801700000000"
+            href="tel:+8801710327794"
             style={{ ...ctaStyle, background: "var(--color-brand)", color: "#fff", borderColor: "var(--color-brand)" }}
           >
             <Phone size={16} aria-hidden /> Call dispatcher
           </a>
           <a
-            href="https://wa.me/8801700000000"
+            href="https://wa.me/8801710327794"
             target="_blank"
             rel="noopener noreferrer"
             style={{ ...ctaStyle, background: "var(--bg-elevated)", color: "var(--color-text)" }}
