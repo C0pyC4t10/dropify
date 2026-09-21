@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth, useOnlineFlush } from "@/lib/rider-auth";
 import { riderFetch, riderGetJson } from "@/lib/rider-api";
@@ -39,6 +39,10 @@ interface PodFromApi {
 interface PodState {
   otpStep: OtpStep;
   otpLast4: string | null;
+  /** Track wrong-attempts in client state too, so we can show "X attempts
+   *  left" without an extra round-trip to /api/rider/orders/[id]. */
+  otpWrongAttempts: number;
+  otpMaxAttempts: number;
   amountCollected: string;
   codMismatch: number | null;
 }
@@ -54,6 +58,8 @@ export default function RiderDeliverPage() {
   const [pod, setPod] = useState<PodState>({
     otpStep: "idle",
     otpLast4: null,
+    otpWrongAttempts: 0,
+    otpMaxAttempts: 5,
     amountCollected: "",
     codMismatch: null,
   });
@@ -103,6 +109,8 @@ export default function RiderDeliverPage() {
           ...p,
           otpStep: initialOtpStep,
           otpLast4: initialLast4,
+          otpWrongAttempts: 0,
+          otpMaxAttempts: res.otp?.maxAttempts ?? 5,
           amountCollected: res.pod?.amountCollected?.toString() ?? "",
           codMismatch:
             res.pod?.amountCollected != null && res.pod?.expectedAmount != null
@@ -289,17 +297,25 @@ export default function RiderDeliverPage() {
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || `status ${res.status}`);
+        const reason = typeof j.reason === "string" ? j.reason : "";
+        throw new Error(reason === "wrong_or_expired" ? "OTP didn't match" : (j.error || `status ${res.status}`));
       }
-      setPod((p) => ({ ...p, otpStep: "verified" }));
+      setPod((p) => ({ ...p, otpStep: "verified", otpWrongAttempts: 0 }));
       if (order?.paymentMethod === "cod") {
         setStep("cod");
       } else {
         await transition("delivered");
       }
     } catch (err) {
-      setPod((p) => ({ ...p, otpStep: "wrong" }));
-      setError(err instanceof Error ? err.message : "OTP did not match");
+      // Wrong attempt: bump the counter and stay on the ready/input step
+      // so the rider can retry with the same code (in case they mistyped)
+      // or fire a new one.
+      setPod((p) => ({
+        ...p,
+        otpStep: "ready",
+        otpWrongAttempts: p.otpWrongAttempts + 1,
+      }));
+      setError(err instanceof Error ? err.message : "OTP didn't match");
     }
   }
 
@@ -433,12 +449,10 @@ export default function RiderDeliverPage() {
           <Block title="Verify with customer">
             {online ? (
               <>
-                {pod.otpStep === "idle" || pod.otpStep === "wrong" ? (
+                {pod.otpStep === "idle" ? (
                   <>
                     <p style={{ fontSize: 14, color: "var(--color-text-secondary)" }}>
-                      {pod.otpStep === "wrong"
-                        ? "That code didn\u2019t match. Request a new one and try again."
-                        : "Send a 4-digit code to the customer. Ask for it and enter below."}
+                      Send a 4-digit code to the customer. Ask for it and enter below.
                     </p>
                     <button onClick={() => void requestOtp()} style={primaryBtn}>
                       Send code
@@ -448,15 +462,27 @@ export default function RiderDeliverPage() {
                   <>
                     <p style={{ fontSize: 14, color: "var(--color-text-secondary)" }}>
                       {pod.otpLast4
-                        ? `Dispatcher sent a code to the customer. Code ends in ••${pod.otpLast4}. Ask for it and enter below.`
+                        ? `Code sent to the customer — ends in ••${pod.otpLast4}. Ask for it and enter below.`
                         : "A 4-digit code was sent to the customer. Ask for it and enter below."}
                     </p>
-                    <OtpEntry onSubmit={verifyOtp} verifying={pod.otpStep === "verifying"} last4={pod.otpLast4} />
-                    {pod.otpStep === "ready" && (
-                      <button onClick={() => void requestOtp()} style={secondaryBtn}>
-                        Resend code
-                      </button>
+                    {pod.otpWrongAttempts > 0 && (
+                      <div style={errorBox}>
+                        That didn&apos;t match ({pod.otpWrongAttempts} wrong so far).
+                        {pod.otpMaxAttempts - pod.otpWrongAttempts <= 2 && (
+                          <> {pod.otpMaxAttempts - pod.otpWrongAttempts} attempt{pod.otpMaxAttempts - pod.otpWrongAttempts === 1 ? "" : "s"} left before the code is invalidated.</>
+                        )}
+                        {" "}Re-confirm with the customer, or send a fresh code below.
+                      </div>
                     )}
+                    <OtpEntry
+                      onSubmit={verifyOtp}
+                      verifying={pod.otpStep === "verifying"}
+                      last4={pod.otpLast4}
+                      key={`otp-${pod.otpWrongAttempts}`}
+                    />
+                    <button onClick={() => void requestOtp()} style={secondaryBtn}>
+                      Resend code
+                    </button>
                   </>
                 ) : (
                   <>
@@ -526,9 +552,17 @@ export default function RiderDeliverPage() {
 
 function OtpEntry({ onSubmit, verifying, last4 }: { onSubmit: (code: string) => void; verifying: boolean; last4: string | null }) {
   const [code, setCode] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    // Re-focus when this component mounts (key={otpWrongAttempts} on parent
+    // remounts the entry on every wrong attempt so the rider can re-type
+    // without first clearing the box).
+    inputRef.current?.focus();
+  }, []);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <input
+        ref={inputRef}
         type="tel"
         inputMode="numeric"
         pattern="\d{4}"
