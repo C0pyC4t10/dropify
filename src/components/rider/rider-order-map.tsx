@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
-import { MapPin, Navigation, AlertTriangle, CheckCircle2, Hand } from "lucide-react";
+import { MapPin, Navigation, AlertTriangle, CheckCircle2, Eye, Hand } from "lucide-react";
 
 export interface RiderOrderMapProps {
   pin: { lat: number; lng: number };
@@ -220,9 +220,9 @@ export function RiderOrderMap(props: RiderOrderMapProps) {
             fontWeight: 600,
             border: "1px solid var(--color-border)",
           }}
-          aria-label="View pin on map"
+          aria-label="Open pin location in Maps"
         >
-          <MapPin size={14} aria-hidden /> View
+          <Eye size={14} aria-hidden /> Map view
         </a>
       </div>
     </div>

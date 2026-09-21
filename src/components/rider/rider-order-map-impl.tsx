@@ -171,8 +171,8 @@ export default function RiderOrderMapImpl({
         aria-label="Refresh my location"
         style={{
           position: "absolute",
-          top: 10,
-          right: 10,
+          bottom: 10,
+          left: 10,
           zIndex: 1000,
           width: 36,
           height: 36,
