@@ -274,7 +274,28 @@ export default function AdminConsolePage() {
         <Stat icon={<Package size={16} />} label="Products (all)" value={t.products} />
         <Stat icon={<ShoppingCart size={16} />} label="Orders (all)" value={t.orders} />
         <Stat icon={<TrendingUp size={16} />} label="Delivered" value={t.delivered} />
-        <Stat icon={<TrendingUp size={16} />} label="Revenue" value={formatMoney(t.revenue)} />
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            gap: 6,
+            padding: "6px 10px",
+            border: "1px dashed var(--color-border, var(--border))",
+            borderRadius: 6,
+            background: "var(--bg-elevated, rgba(255,255,255,0.02))",
+            gridColumn: "1 / -1",
+            marginTop: 4,
+          }}
+        >
+          <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+            <strong style={{ color: "var(--text-primary)" }}>Revenue scope:</strong> this
+            figure counts every delivered order's total — own-rider AND Pathao. The{" "}
+            <Link href="/finance?tab=cash" style={{ color: "var(--accent-green)" }}>
+              Cash / P&amp;L
+            </Link>{" "}
+            tab scopes to own-rider only because Pathao pays themselves through their own rail.
+          </span>
+        </div>
         <Stat icon={<Wallet size={16} />} label="Expenses" value={t.expenses} />
         <Stat icon={<Users size={16} />} label="Customers (shared)" value={t.customers} />
         <Stat icon={<Truck size={16} />} label="Riders (shared)" value={t.riders} />

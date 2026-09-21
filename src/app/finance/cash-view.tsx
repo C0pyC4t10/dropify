@@ -18,6 +18,8 @@ interface DayRow {
   expenses: number;
   net: number;
   deliveredOrders: number;
+  pathaoOrders: number;
+  pathaoTotal: number;
   expenseCount: number;
 }
 
@@ -37,6 +39,8 @@ interface SummaryPayload {
     expenses: number;
     net: number;
     deliveredOrders: number;
+    pathaoOrders: number;
+    pathaoTotal: number;
   };
   byDay: DayRow[];
   expensesByCategory: CategoryRow[];
@@ -97,6 +101,8 @@ export function CashView() {
     expenses: number;
     net: number;
     deliveredOrders: number;
+    pathaoOrders: number;
+    pathaoTotal: number;
     firstDeliveredAt: string;
     lastDeliveredAt: string;
   } | null>(null);
@@ -219,7 +225,7 @@ export function CashView() {
           </div>
         </div>
 
-        <div
+<div
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
@@ -227,14 +233,14 @@ export function CashView() {
           }}
         >
           <LifetimeStat
-            label="Cash collected"
+            label="Delivered revenue"
             value={lifetime?.revenue ?? null}
             accent="var(--accent-green)"
           />
           <LifetimeStat
             label="Orders delivered"
             value={lifetime ? String(lifetime.deliveredOrders) : null}
-            accent="var(--accent-blue)"
+            accent="var(--color-blue)"
           />
           <LifetimeStat
             label="Rider payouts"
@@ -242,11 +248,44 @@ export function CashView() {
             accent="var(--accent-amber)"
           />
           <LifetimeStat
+            label="Pathao (paid via Pathao rail)"
+            value={lifetime?.pathaoTotal ?? null}
+            sub={
+              lifetime
+                ? `${lifetime.pathaoOrders} order${lifetime.pathaoOrders === 1 ? "" : "s"} · excluded from P&L`
+                : ""
+            }
+            accent="var(--text-muted)"
+          />
+          <LifetimeStat
             label="Expenses"
             value={lifetime?.expenses ?? null}
             accent="var(--text-secondary)"
           />
         </div>
+        {lifetime && lifetime.pathaoOrders > 0 && (
+          <div
+            style={{
+              marginTop: 10,
+              padding: "8px 10px",
+              border: "1px dashed var(--color-border, var(--border))",
+              borderLeft: "3px solid var(--color-info, var(--accent-blue))",
+              borderRadius: 6,
+              fontSize: 12,
+              color: "var(--text-secondary)",
+              background: "var(--bg-elevated, rgba(255,255,255,0.02))",
+            }}
+          >
+            <strong style={{ color: "var(--text-primary)" }}>
+              {lifetime.pathaoOrders} Pathao order{lifetime.pathaoOrders === 1 ? "" : "s"} · ৳
+              {lifetime.pathaoTotal.toLocaleString("en-IN")}
+            </strong>{" "}
+            paid via Pathao — counted toward <strong>/admin</strong>'s lifetime revenue (৳
+            {(lifetime.revenue + lifetime.pathaoTotal).toLocaleString("en-IN")} total delivered),
+            but excluded from this P&amp;L: Pathao pays themselves through pathaoFare, so the cash
+            never flows through our books.
+          </div>
+        )}
       </div>
 
       {/* Range picker */}
@@ -332,7 +371,7 @@ export function CashView() {
         />
         <HeroStat
           icon={<TrendingUp size={18} />}
-          label="Revenue"
+          label="Delivered revenue"
           value={data?.total.revenue ?? null}
           accent="var(--accent-green)"
         />
@@ -533,10 +572,12 @@ function LifetimeStat({
   label,
   value,
   accent,
+  sub,
 }: {
   label: string;
   value: string | number | null;
   accent: string;
+  sub?: string;
 }) {
   return (
     <div>
@@ -566,6 +607,18 @@ function LifetimeStat({
           ? value
           : formatMoney(value)}
       </div>
+      {sub && (
+        <div
+          style={{
+            fontSize: 11,
+            color: "var(--text-muted)",
+            marginTop: 4,
+            lineHeight: 1.3,
+          }}
+        >
+          {sub}
+        </div>
+      )}
     </div>
   );
 }

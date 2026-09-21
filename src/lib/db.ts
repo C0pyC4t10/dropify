@@ -5027,7 +5027,15 @@ export function getCashSummary(
 ): {
   from: string;
   to: string;
-  total: { revenue: number; riderCost: number; expenses: number; net: number; deliveredOrders: number };
+  total: {
+    revenue: number;
+    riderCost: number;
+    expenses: number;
+    net: number;
+    deliveredOrders: number;
+    pathaoOrders: number;
+    pathaoTotal: number;
+  };
   byDay: Array<{
     date: string;
     revenue: number;
@@ -5035,6 +5043,8 @@ export function getCashSummary(
     expenses: number;
     net: number;
     deliveredOrders: number;
+    pathaoOrders: number;
+    pathaoTotal: number;
     expenseCount: number;
   }>;
   expensesByCategory: Array<{ category: string; amount: number; count: number }>;
@@ -5043,12 +5053,18 @@ export function getCashSummary(
   const round2 = (n: number) => Math.round(n * 100) / 100;
 
   // Per-day revenue + rider cost + delivered-count for own-rider delivered.
+  // Pathao rows get their own pathaoTotal / pathaoOrders so the operator
+  // can reconcile finance's own-rider scope against admin's all-routes
+  // scope (admin sums EVERY delivered total, finance excludes Pathao
+  // because Pathao pays themselves through their own rail).
   const byDayOrders = db
     .prepare(
       `SELECT date,
               SUM(CASE WHEN deliveryMode != 'pathao' THEN total ELSE 0 END) AS revenue,
               SUM(CASE WHEN deliveryMode != 'pathao' THEN riderCost ELSE 0 END) AS riderCost,
-              COUNT(*) AS deliveredOrders
+              COUNT(*) AS deliveredOrders,
+              SUM(CASE WHEN deliveryMode  = 'pathao' THEN total ELSE 0 END) AS pathaoTotal,
+              COUNT(CASE WHEN deliveryMode = 'pathao' THEN 1 END) AS pathaoOrders
          FROM orders
         WHERE companyId = ?
           AND date BETWEEN ? AND ?
@@ -5060,6 +5076,8 @@ export function getCashSummary(
       revenue: number | null;
       riderCost: number | null;
       deliveredOrders: number;
+      pathaoTotal: number | null;
+      pathaoOrders: number | null;
     }>;
 
   const byDayExpenses = db
@@ -5114,6 +5132,8 @@ export function getCashSummary(
     const e = expensesMap.get(date);
     const revenue = Number(o?.revenue ?? 0);
     const riderCost = Number(o?.riderCost ?? 0);
+    const pathaoTotal = Number(o?.pathaoTotal ?? 0);
+    const pathaoOrders = o?.pathaoOrders ?? 0;
     const expenses = Number(e?.expenses ?? 0);
     const deliveredOrders = o?.deliveredOrders ?? 0;
     const expenseCount = e?.expenseCount ?? 0;
@@ -5124,6 +5144,8 @@ export function getCashSummary(
       expenses: round2(expenses),
       net: round2(revenue - riderCost - expenses),
       deliveredOrders,
+      pathaoOrders,
+      pathaoTotal: round2(pathaoTotal),
       expenseCount,
     };
   });
@@ -5135,9 +5157,11 @@ export function getCashSummary(
       acc.expenses += d.expenses;
       acc.net += d.net;
       acc.deliveredOrders += d.deliveredOrders;
+      acc.pathaoOrders += d.pathaoOrders;
+      acc.pathaoTotal += d.pathaoTotal;
       return acc;
     },
-    { revenue: 0, riderCost: 0, expenses: 0, net: 0, deliveredOrders: 0 }
+    { revenue: 0, riderCost: 0, expenses: 0, net: 0, deliveredOrders: 0, pathaoOrders: 0, pathaoTotal: 0 }
   );
 
   return {
@@ -5149,6 +5173,8 @@ export function getCashSummary(
       expenses: round2(total.expenses),
       net: round2(total.net),
       deliveredOrders: total.deliveredOrders,
+      pathaoOrders: total.pathaoOrders,
+      pathaoTotal: round2(total.pathaoTotal),
     },
     byDay,
     expensesByCategory: expensesByCategory.map((r) => ({
@@ -5186,6 +5212,15 @@ export function getCashLifetime(companyId: number): {
   expenses: number;
   net: number;
   deliveredOrders: number;
+  /** Delivered orders handled by Pathao (not by an own rider). These are
+   *  counted in `deliveredOrders` (the operator cares about how many
+   *  orders succeeded end-to-end) but NOT in `revenue` / `riderCost`
+   *  because Pathao pays themselves via pathaoFare — we don't see the cash
+   *  flow on our books, so it doesn't belong on the P&L.
+   *  Surface as a separate stat on the Cash / P&L view so the operator
+   *  can reconcile against /admin's lifetime revenue. */
+  pathaoOrders: number;
+  pathaoTotal: number;
   /** Earliest `deliveredAt` for an own-rider delivered order, ISO. "" if none. */
   firstDeliveredAt: string;
   /** Latest `deliveredAt` for an own-rider delivered order, ISO. "" if none. */
@@ -5197,9 +5232,11 @@ export function getCashLifetime(companyId: number): {
   const o = db
     .prepare(
       `SELECT
-         SUM(CASE WHEN deliveryMode != 'pathao' THEN total ELSE 0 END) AS revenue,
+         SUM(CASE WHEN deliveryMode != 'pathao' THEN total      ELSE 0 END) AS revenue,
          SUM(CASE WHEN deliveryMode != 'pathao' THEN riderCost ELSE 0 END) AS riderCost,
          COUNT(*) AS deliveredOrders,
+         SUM(CASE WHEN deliveryMode  = 'pathao' THEN total      ELSE 0 END) AS pathaoTotal,
+         COUNT(CASE WHEN deliveryMode = 'pathao' THEN 1 END) AS pathaoOrders,
          MIN(deliveredAt) AS firstDeliveredAt,
          MAX(deliveredAt) AS lastDeliveredAt
          FROM orders
@@ -5210,6 +5247,8 @@ export function getCashLifetime(companyId: number): {
       revenue: number | null;
       riderCost: number | null;
       deliveredOrders: number;
+      pathaoTotal: number | null;
+      pathaoOrders: number | null;
       firstDeliveredAt: string | null;
       lastDeliveredAt: string | null;
     };
@@ -5220,6 +5259,7 @@ export function getCashLifetime(companyId: number): {
 
   const revenue = Number(o.revenue ?? 0);
   const riderCost = Number(o.riderCost ?? 0);
+  const pathaoTotal = Number(o.pathaoTotal ?? 0);
   const expenses = Number(e.total ?? 0);
 
   return {
@@ -5228,6 +5268,8 @@ export function getCashLifetime(companyId: number): {
     expenses: round2(expenses),
     net: round2(revenue - riderCost - expenses),
     deliveredOrders: o.deliveredOrders ?? 0,
+    pathaoOrders: o.pathaoOrders ?? 0,
+    pathaoTotal: round2(pathaoTotal),
     firstDeliveredAt: o.firstDeliveredAt ?? "",
     lastDeliveredAt: o.lastDeliveredAt ?? "",
   };
