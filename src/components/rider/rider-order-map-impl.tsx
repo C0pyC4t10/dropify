@@ -165,35 +165,50 @@ export default function RiderOrderMapImpl({
           <Marker position={[riderPos.lat, riderPos.lng]} icon={riderIcon} />
         )}
       </MapContainer>
-      <button
-        type="button"
-        onClick={refreshGps}
-        aria-label="Refresh my location"
-        style={{
-          position: "absolute",
-          bottom: 10,
-          left: 10,
-          zIndex: 1000,
-          width: 36,
-          height: 36,
-          borderRadius: 8,
-          background: "var(--bg-elevated)",
-          border: "1px solid var(--color-border)",
-          color: "var(--color-text)",
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          cursor: "pointer",
-          boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
-        }}
-      >
-        <RefreshCw
-          size={14}
-          aria-hidden
-          className={gpsStatus === "locating" ? "dropify-spin" : undefined}
-        />
-      </button>
     </div>
+  );
+}
+
+/** Public refresh button exposed for the parent (wrapper) to render below
+ *  the map. Keeping it out of the map container avoids fighting Leaflet's
+ *  built-in attribution control at the bottom-left. */
+export function RefreshGpsButton({
+  onClick,
+  locating,
+}: {
+  onClick: () => void;
+  locating: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Refresh my location"
+      disabled={locating}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        minHeight: 44,
+        padding: "0 12px",
+        borderRadius: 10,
+        background: "var(--bg-elevated)",
+        color: "var(--color-text)",
+        textDecoration: "none",
+        fontSize: 13,
+        fontWeight: 600,
+        border: "1px solid var(--color-border)",
+        cursor: locating ? "wait" : "pointer",
+        opacity: locating ? 0.7 : 1,
+      }}
+    >
+      <RefreshCw
+        size={14}
+        aria-hidden
+        className={locating ? "dropify-spin" : undefined}
+      />
+      {locating ? "Locating…" : "Refresh"}
+    </button>
   );
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { MapPin, Navigation, AlertTriangle, CheckCircle2, Eye, Hand } from "lucide-react";
 
 export interface RiderOrderMapProps {
@@ -13,25 +13,33 @@ export interface RiderOrderMapProps {
 
 /** SSR-safe wrapper for the Leaflet map. Leaflet touches `window` at import
  *  time, so we dynamic-import the inner component with `ssr: false`. */
-const MapDynamic = dynamic(() => import("./rider-order-map-impl"), {
-  ssr: false,
-  loading: () => (
-    <div style={{
-      height: 220,
-      width: "100%",
-      borderRadius: 12,
-      border: "1px solid var(--color-border)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      background: "var(--bg-elevated)",
-      color: "var(--color-text-muted)",
-      fontSize: 13,
-    }}>
-      Loading map…
-    </div>
-  ),
-});
+const MapDynamic = dynamic(
+  () => import("./rider-order-map-impl").then((m) => m.default),
+  {
+    ssr: false,
+    loading: () => (
+      <div style={{
+        height: 220,
+        width: "100%",
+        borderRadius: 12,
+        border: "1px solid var(--color-border)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "var(--bg-elevated)",
+        color: "var(--color-text-muted)",
+        fontSize: 13,
+      }}>
+        Loading map…
+      </div>
+    ),
+  },
+);
+
+const RefreshGpsDynamic = dynamic(
+  () => import("./rider-order-map-impl").then((m) => m.RefreshGpsButton),
+  { ssr: false },
+);
 
 /** Public component used by the rider order detail page. Renders the
  *  confidence/distance banner + the map + Navigate/View buttons. The
@@ -43,6 +51,7 @@ export function RiderOrderMap(props: RiderOrderMapProps) {
   const [livePin, setLivePin] = useState(props.pin);
   const [riderPos, setRiderPos] = useState<{ lat: number; lng: number } | null>(null);
   const [distance, setDistance] = useState<number | null>(null);
+  const [locating, setLocating] = useState(false);
 
   // Reset the live pin if the server hands us a new order.
   useEffect(() => {
@@ -51,14 +60,26 @@ export function RiderOrderMap(props: RiderOrderMapProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.pin.lat, props.pin.lng]);
 
-  useEffect(() => {
+  const refreshGps = useCallback(() => {
     if (typeof navigator === "undefined" || !("geolocation" in navigator)) return;
+    setLocating(true);
     navigator.geolocation.getCurrentPosition(
-      (pos) => setRiderPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => setRiderPos(null),
-      { enableHighAccuracy: false, timeout: 6000, maximumAge: 60000 },
+      (pos) => {
+        setRiderPos({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLocating(false);
+      },
+      () => {
+        setRiderPos(null);
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
     );
   }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refreshGps();
+  }, [refreshGps]);
 
   useEffect(() => {
     if (!riderPos) return;
@@ -202,6 +223,9 @@ export function RiderOrderMap(props: RiderOrderMapProps) {
         >
           <Navigation size={16} aria-hidden /> Navigate
         </a>
+        <RefreshGpsDynamic onClick={refreshGps} locating={locating} />
+      </div>
+      <div style={{ display: "flex", justifyContent: "center", marginTop: 8 }}>
         <a
           href={viewUrl}
           target="_blank"
@@ -210,19 +234,18 @@ export function RiderOrderMap(props: RiderOrderMapProps) {
             display: "inline-flex",
             alignItems: "center",
             gap: 6,
-            minHeight: 44,
-            padding: "0 12px",
-            borderRadius: 10,
-            background: "var(--bg-elevated)",
-            color: "var(--color-text)",
+            minHeight: 36,
+            padding: "0 10px",
+            borderRadius: 8,
+            background: "transparent",
+            color: "var(--color-text-secondary)",
             textDecoration: "none",
-            fontSize: 13,
+            fontSize: 12,
             fontWeight: 600,
-            border: "1px solid var(--color-border)",
           }}
           aria-label="Open pin location in Maps"
         >
-          <Eye size={14} aria-hidden /> Map view
+          <Eye size={12} aria-hidden /> Map view (no directions)
         </a>
       </div>
     </div>
