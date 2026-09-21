@@ -3,7 +3,6 @@ import {
   getRiderOrder,
   getProofOfDelivery,
   updateProofOfDelivery,
-  insertProofOfDelivery,
   expectedAmountForOrder,
 } from "@/lib/db";
 import {
@@ -62,23 +61,16 @@ export async function POST(
   }
   const expected = expectedAmountForOrder(order);
 
-  let pod = getProofOfDelivery(orderId);
-  if (!pod) {
-    pod = insertProofOfDelivery({
-      orderId,
-      photoPath: "",
-      photoSizeBytes: 0,
-      otpVerified: false,
-      otpId: null,
-      amountCollected: amount,
-      expectedAmount: expected,
-      lat: null,
-      lng: null,
-      capturedAt: new Date().toISOString(),
-    });
-  } else {
-    updateProofOfDelivery(orderId, { amountCollected: amount });
+  const pod = getProofOfDelivery(orderId);
+  if (!pod || !pod.otpVerified) {
+    return errorResponse(
+      409,
+      "Verify the customer OTP before recording the cash amount.",
+      { reason: "pod_otp_required" }
+    );
   }
+
+  updateProofOfDelivery(orderId, { amountCollected: amount });
 
   const discrepancy = +(amount - expected).toFixed(2);
   return NextResponse.json({

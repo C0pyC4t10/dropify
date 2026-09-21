@@ -366,7 +366,14 @@ export default function RiderDeliverPage() {
         accessToken,
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || `status ${res.status}`);
+      if (!res.ok) {
+        if (json.reason === "pod_otp_required") {
+          setStep("otp");
+          setPod((p) => ({ ...p, otpStep: p.otpStep === "verified" ? "verified" : "idle" }));
+          throw new Error("Verify the customer OTP before recording cash.");
+        }
+        throw new Error(json.error || `status ${res.status}`);
+      }
       const discrepancy = Number(json.discrepancy);
       if (json.hasMismatch && !confirm(`Collected ৳${amount} doesn&apos;t match expected ৳${json.expectedAmount}. Continue anyway?`)) {
         setSubmitting(false);
