@@ -14,20 +14,45 @@ function DropifyMark() {
       aria-label="Dropify"
       style={{
         display: "inline-flex",
-        alignItems: "baseline",
-        gap: 2,
-        fontWeight: 800,
-        fontSize: 16,
-        letterSpacing: -0.3,
+        alignItems: "center",
+        gap: 6,
         color: "var(--color-brand)",
         flexShrink: 0,
       }}
     >
-      <span>Dropify</span>
-      <span style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-muted)", marginLeft: 4 }}>
-        RIDER
-      </span>
+      <DMonogram size={26} />
+      <div style={{ display: "inline-flex", alignItems: "baseline", gap: 2 }}>
+        <span style={{ fontWeight: 800, fontSize: 16, letterSpacing: -0.3 }}>
+          Dropify
+        </span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-muted)", marginLeft: 4 }}>
+          RIDER
+        </span>
+      </div>
     </div>
+  );
+}
+
+/** Compact letter-D monogram used in the rider header. Inline SVG so we
+ *  don't ship a network request for what's basically a glyph — and so
+ *  it tracks the brand color token automatically. */
+function DMonogram({ size = 24 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 64 64"
+      role="img"
+      aria-hidden
+      style={{ flexShrink: 0 }}
+    >
+      <rect width="64" height="64" rx="14" fill="currentColor" />
+      <path
+        d="M18 14 H36 C50 14 52 22 52 32 C52 42 50 50 36 50 H18 Z M25 21 H35 C41 21 45 26 45 32 C45 38 41 43 35 43 H25 Z"
+        fill="#fff"
+        fillRule="evenodd"
+      />
+    </svg>
   );
 }
 

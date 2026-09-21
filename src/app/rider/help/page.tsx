@@ -16,20 +16,20 @@ import {
 
 const FAQ: Array<{ q: string; a: string }> = [
   {
-    q: "An order won me — what now?",
-    a: "Open it from the Today tab, acknowledge pickup, then mark on the way once you have the goods. Use the deliver flow for photo, OTP, and COD.",
+    q: "An order came in — what now?",
+    a: "Open it from the Today tab, acknowledge pickup, then mark on the way once you have the goods. The next steps are OTP, then COD if the order is cash on delivery.",
   },
   {
     q: "My GPS is off. Will delivery still go through?",
     a: "Yes. We&apos;ll still mark the order delivered. We just won&apos;t have the exact pin on the audit trail.",
   },
   {
-    q: "Customer says they didn&apos;t get the SMS OTP.",
+    q: "The customer says they didn&apos;t get the SMS OTP.",
     a: "Tap &ldquo;Resend code&rdquo; on the OTP step. If it still doesn&apos;t arrive, call the dispatcher on this page.",
   },
   {
     q: "I&apos;m offline and the customer is paying cash.",
-    a: "No problem. The deliver flow queues the photo, COD amount, and transition. They sync the moment you&apos;re back online.",
+    a: "No problem. The flow queues the COD amount and delivery status. They sync the moment you&apos;re back online.",
   },
   {
     q: "How do I sign out?",
