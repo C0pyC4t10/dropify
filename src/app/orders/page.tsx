@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect, useCallback, useMemo } from "react";
+import { Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, Search, Printer, Check, X, Trash2, Truck, Inbox, FileSpreadsheet, FileText, Map, Bike, Compass, Download, Calendar } from "lucide-react";
@@ -25,55 +25,65 @@ const FILTERS: Array<OrderStatus | "all"> = [
   "returned",
 ];
 
-/** Group orders by `YYYY-MM` (using order.date or createdAt fallback) for
- *  the All tab. Newest month first. Empty/garbage dates are bucketed under
- *  "No date" so they don't get lost in the un-grouped output. */
-interface MonthGroup {
-  key: string;        // "YYYY-MM" or "no-date"
-  label: string;      // "September 2026"
-  orders: Order[];
-  total: number;
-  deliveredCount: number;
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+interface MonthOption {
+  /** "YYYY-MM" or "all" or "no-date" */
+  key: string;
+  /** "September 2026" or "All months" */
+  label: string;
+  /** Orders that fall into this month (across all status / cluster /
+   *  search / today filters — purely the calendar slice). */
+  count: number;
+  /** "2026-09" only present for YYYY-MM keys; useful for sorting. */
+  ym?: string;
 }
 
-function groupOrdersByMonth(list: Order[]): MonthGroup[] {
-  const MONTHS = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
-  ];
-  // Use a plain record instead of `new Map` — the file imports `Map` from
-  // lucide-react (used as a route-map icon elsewhere), which shadows the
-  // global Map class and breaks `new Map<string, MonthGroup>()`.
-  const groups: Record<string, MonthGroup> = {};
-  for (const o of list) {
+/** Distinct months present in `orders`, newest first. Used to populate
+ *  the month picker on the All tab so the operator can see one month at
+ *  a time instead of every month stacked in one scroll. */
+function listMonths(orders: Order[]): MonthOption[] {
+  // Note: using a plain Record instead of `new Map` — the file imports
+  // `Map` from lucide-react (used as a route-map icon elsewhere), which
+  // shadows the global Map class and breaks the constructor signature.
+  const counts: Record<string, number> = {};
+  let total = 0;
+  for (const o of orders) {
     const raw = (o.date || "").trim();
-    let key: string;
-    let label: string;
     if (/^\d{4}-\d{2}/.test(raw)) {
-      const [y, m] = raw.slice(0, 7).split("-").map(Number);
-      key = raw.slice(0, 7);
-      label = `${MONTHS[m - 1]} ${y}`;
+      const ym = raw.slice(0, 7);
+      counts[ym] = (counts[ym] ?? 0) + 1;
+      total += 1;
     } else {
-      key = "no-date";
-      label = "No date";
+      counts["no-date"] = (counts["no-date"] ?? 0) + 1;
+      total += 1;
     }
-    let g = groups[key];
-    if (!g) {
-      g = { key, label, orders: [], total: 0, deliveredCount: 0 };
-      groups[key] = g;
-    }
-    g.orders.push(o);
-    g.total += o.total;
-    if (o.status === "delivered") g.deliveredCount += 1;
   }
   // Newest month first; "no-date" goes last so it doesn't steal focus.
-  const all = Object.values(groups);
-  all.sort((a, b) => {
-    if (a.key === "no-date") return 1;
-    if (b.key === "no-date") return -1;
-    return b.key.localeCompare(a.key);
+  const keys = Object.keys(counts);
+  keys.sort((a, b) => {
+    if (a === "no-date") return 1;
+    if (b === "no-date") return -1;
+    return b.localeCompare(a);
   });
-  return all;
+  const out: MonthOption[] = keys.map((k) => {
+    if (k === "no-date") {
+      return { key: "no-date", label: "No date", count: counts[k] ?? 0 };
+    }
+    const [y, m] = k.split("-").map(Number);
+    return {
+      key: k,
+      ym: k,
+      label: `${MONTH_NAMES[m - 1]} ${y}`,
+      count: counts[k] ?? 0,
+    };
+  });
+  // Always offer an "All months" option at the top so the operator can
+  // still see every row when they want to.
+  return [{ key: "all", label: "All months", count: total }, ...out];
 }
 
 export default function OrdersPage() {
@@ -160,6 +170,31 @@ function OrdersPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
+  // Distinct months present in the FULL orders list (not the filtered
+  // subset — we want the picker to show every month that has any data,
+  // even when the user has typed a search or picked a cluster).
+  // Memoizing so the picker doesn't reflow on every search keystroke.
+  const monthOptions = useMemo(() => listMonths(orders), [orders]);
+
+  // Most recent real month on the page = "2026-09" once orders arrive.
+  // We keep this as the picker default whenever the user hasn't picked
+  // anything themselves yet, so re-opening /orders lands them on the
+  // actionable "this month" view rather than dumping every month in
+  // their face.
+  const mostRecentMonth = monthOptions.find((m) => !!m.ym)?.key ?? null;
+  const [monthFilter, setMonthFilter] = useState<string | null>(null);
+  // Track whether the user has clicked a month pill themselves. We
+  // default to the most recent real month on first paint, but never
+  // overwrite a click they made.
+  const userPickedMonth = useRef(false);
+  useEffect(() => {
+    if (!userPickedMonth.current && mostRecentMonth) {
+      setMonthFilter(mostRecentMonth);
+    }
+  }, [mostRecentMonth]);
+
+  const effectiveMonthFilter = monthFilter ?? mostRecentMonth ?? "all";
+
   const filtered = useMemo(() => {
     const list = orders.filter((o) => {
       // pending-approval orders live at /orders/approval — never mixed here.
@@ -180,6 +215,16 @@ function OrdersPageContent() {
           (o.area || "").toLowerCase().includes(q);
         if (!hit) return false;
       }
+      // Month chip — when set to a YYYY-MM or "no-date" key, narrow to
+      // that month. "all" keeps every month in view. (We don't apply
+      // this when todayOnly is on, since the today pill already
+      // narrows to a single day — adding a month filter on top
+      // would be redundant.)
+      if (!todayOnly && effectiveMonthFilter !== "all") {
+        const ym = (o.date || "").slice(0, 7);
+        const bucket = /^\d{4}-\d{2}/.test(ym) ? ym : "no-date";
+        if (bucket !== effectiveMonthFilter) return false;
+      }
       return true;
     });
     if (filter === "delivered") {
@@ -191,7 +236,7 @@ function OrdersPageContent() {
       });
     }
     return list;
-  }, [orders, filter, clusterFilter, query, todayOnly, todayDateStr]);
+  }, [orders, filter, clusterFilter, query, todayOnly, todayDateStr, effectiveMonthFilter]);
 
   const todayCount = useMemo(
     () =>
@@ -228,14 +273,6 @@ function OrdersPageContent() {
     [filtered]
   );
 
-  // Month-bucketed view for the "All" tab. Other status filters keep the
-  // flat render so dense tabs (e.g. Out-for-delivery) still scan fast in
-  // one scrolling table. Today-only override also stays flat: the today
-  // view is meant to be a single day's queue.
-  const monthGroups = useMemo(
-    () => (filter === "all" && !todayOnly ? groupOrdersByMonth(filtered) : null),
-    [filter, todayOnly, filtered]
-  );
   const [showPrep, setShowPrep] = useState(false);
 
   const allSelected = filtered.length > 0 && filtered.every((o) => selectedIds.has(o.id));
@@ -616,6 +653,87 @@ function OrdersPageContent() {
         </div>
       </div>
 
+      {/* Month picker — when "All" status tab is active and Today isn't,
+          show the operator one month at a time. Newest month first so
+          the actionable "this month" view is the default. Status tabs
+          (New / Confirmed / etc.) ignore this row so dense work queues
+          still scan all of their rows in one screen. */}
+      {!todayOnly && filter === "all" && monthOptions.length > 2 && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            marginBottom: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <span
+            style={{
+              fontSize: 11,
+              color: "var(--text-muted)",
+              textTransform: "uppercase",
+              letterSpacing: 0.4,
+              fontWeight: 700,
+              marginRight: 4,
+            }}
+          >
+            Month
+          </span>
+          {monthOptions.map((m) => {
+            const active = effectiveMonthFilter === m.key;
+            return (
+              <button
+                key={m.key}
+                onClick={() => {
+                  userPickedMonth.current = true;
+                  setMonthFilter(m.key);
+                }}
+                className="btn"
+                title={
+                  m.key === "all"
+                    ? "Show every month at once"
+                    : `Show only orders from ${m.label}`
+                }
+                style={{
+                  fontSize: 12,
+                  padding: "4px 10px",
+                  background: active
+                    ? "var(--tint-brand-18)"
+                    : "var(--bg-card)",
+                  color: active ? "var(--accent-green)" : "var(--text-secondary)",
+                  border: `1px solid ${
+                    active
+                      ? "color-mix(in srgb, var(--color-brand) 40%, transparent)"
+                      : "var(--border)"
+                  }`,
+                  fontWeight: active ? 700 : 500,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                {m.label}
+                <span
+                  style={{
+                    fontSize: 10,
+                    background: active ? "var(--accent-green)" : "var(--bg-hover)",
+                    color: active ? "white" : "var(--text-muted)",
+                    fontWeight: 700,
+                    padding: "0 6px",
+                    borderRadius: 999,
+                    minWidth: 18,
+                    textAlign: "center",
+                  }}
+                >
+                  {m.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Bulk action bar — shows when any order is selected */}
       {selectedIds.size > 0 && (
         <div
@@ -777,32 +895,15 @@ function OrdersPageContent() {
                   </td>
                 </tr>
               )}
-              {monthGroups
-                ? monthGroups.map((g) => (
-                    <OrderMonthGroup
-                      key={g.key}
-                      group={g}
-                      totalRows={filtered.length}
-                      renderRow={(o) => (
-                        <OrderRow
-                          key={o.id}
-                          o={o}
-                          riders={riders}
-                          selectedIds={selectedIds}
-                          toggleSelect={toggleSelect}
-                        />
-                      )}
-                    />
-                  ))
-                : filtered.map((o) => (
-                    <OrderRow
-                      key={o.id}
-                      o={o}
-                      riders={riders}
-                      selectedIds={selectedIds}
-                      toggleSelect={toggleSelect}
-                    />
-                  ))}
+              {filtered.map((o) => (
+                <OrderRow
+                  key={o.id}
+                  o={o}
+                  riders={riders}
+                  selectedIds={selectedIds}
+                  toggleSelect={toggleSelect}
+                />
+              ))}
             </tbody>
             {filtered.length > 0 && (
               <tfoot>
@@ -1281,60 +1382,5 @@ function OrderRow({
         </button>
       </td>
     </tr>
-  );
-}
-
-/** Month section header + the orders that fall under it. Sits inside
- *  the same <tbody> as the rows so it scrolls with them. */
-function OrderMonthGroup({
-  group,
-  renderRow,
-}: {
-  group: MonthGroup;
-  totalRows: number;
-  renderRow: (o: Order) => React.ReactElement;
-}) {
-  // Stick the section header to the top of the visible viewport so the
-  // operator always knows which month's block they're scanning.
-  return (
-    <>
-      <tr>
-        <td
-          colSpan={15}
-          style={{
-            background:
-              "color-mix(in srgb, var(--color-brand) 14%, var(--bg-card))",
-            borderTop: "1px solid var(--color-border, var(--border))",
-            borderBottom: "1px solid var(--color-border, var(--border))",
-            color: "var(--text-primary)",
-            fontSize: 12,
-            fontWeight: 700,
-            letterSpacing: 0.4,
-            textTransform: "uppercase",
-            padding: "8px 12px",
-            position: "sticky",
-            top: 0,
-            zIndex: 1,
-          }}
-        >
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-            <Calendar size={13} color="var(--accent-green)" />
-            {group.label}
-          </span>
-          <span style={{ marginLeft: 12, color: "var(--text-secondary)", fontWeight: 600, textTransform: "none" }}>
-            {group.orders.length} order{group.orders.length !== 1 ? "s" : ""}
-          </span>
-          <span style={{ marginLeft: 12, color: "var(--accent-green)", fontWeight: 700, textTransform: "none" }}>
-            {formatMoney(group.total)}
-          </span>
-          {group.deliveredCount > 0 && (
-            <span style={{ marginLeft: 12, color: "var(--text-muted)", fontWeight: 500, textTransform: "none" }}>
-              {group.deliveredCount} delivered
-            </span>
-          )}
-        </td>
-      </tr>
-      {group.orders.map((o) => renderRow(o))}
-    </>
   );
 }
