@@ -25,6 +25,57 @@ const FILTERS: Array<OrderStatus | "all"> = [
   "returned",
 ];
 
+/** Group orders by `YYYY-MM` (using order.date or createdAt fallback) for
+ *  the All tab. Newest month first. Empty/garbage dates are bucketed under
+ *  "No date" so they don't get lost in the un-grouped output. */
+interface MonthGroup {
+  key: string;        // "YYYY-MM" or "no-date"
+  label: string;      // "September 2026"
+  orders: Order[];
+  total: number;
+  deliveredCount: number;
+}
+
+function groupOrdersByMonth(list: Order[]): MonthGroup[] {
+  const MONTHS = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+  ];
+  // Use a plain record instead of `new Map` — the file imports `Map` from
+  // lucide-react (used as a route-map icon elsewhere), which shadows the
+  // global Map class and breaks `new Map<string, MonthGroup>()`.
+  const groups: Record<string, MonthGroup> = {};
+  for (const o of list) {
+    const raw = (o.date || "").trim();
+    let key: string;
+    let label: string;
+    if (/^\d{4}-\d{2}/.test(raw)) {
+      const [y, m] = raw.slice(0, 7).split("-").map(Number);
+      key = raw.slice(0, 7);
+      label = `${MONTHS[m - 1]} ${y}`;
+    } else {
+      key = "no-date";
+      label = "No date";
+    }
+    let g = groups[key];
+    if (!g) {
+      g = { key, label, orders: [], total: 0, deliveredCount: 0 };
+      groups[key] = g;
+    }
+    g.orders.push(o);
+    g.total += o.total;
+    if (o.status === "delivered") g.deliveredCount += 1;
+  }
+  // Newest month first; "no-date" goes last so it doesn't steal focus.
+  const all = Object.values(groups);
+  all.sort((a, b) => {
+    if (a.key === "no-date") return 1;
+    if (b.key === "no-date") return -1;
+    return b.key.localeCompare(a.key);
+  });
+  return all;
+}
+
 export default function OrdersPage() {
   // Next.js 16 requires useSearchParams() to live inside a Suspense boundary
   // so the page can be prerendered without bailing out at build time.
@@ -175,6 +226,15 @@ function OrdersPageContent() {
   const aggRows = useMemo(
     () => aggregateOrdersBySku(filtered),
     [filtered]
+  );
+
+  // Month-bucketed view for the "All" tab. Other status filters keep the
+  // flat render so dense tabs (e.g. Out-for-delivery) still scan fast in
+  // one scrolling table. Today-only override also stays flat: the today
+  // view is meant to be a single day's queue.
+  const monthGroups = useMemo(
+    () => (filter === "all" && !todayOnly ? groupOrdersByMonth(filtered) : null),
+    [filter, todayOnly, filtered]
   );
   const [showPrep, setShowPrep] = useState(false);
 
@@ -717,154 +777,32 @@ function OrdersPageContent() {
                   </td>
                 </tr>
               )}
-              {filtered.map((o) => (
-                <tr
-                  key={o.id}
-                  onClick={() => (window.location.href = `/orders/${o.id}`)}
-                  style={{
-                    cursor: "pointer",
-                    background: selectedIds.has(o.id) ? "color-mix(in srgb, var(--color-brand) 10%, transparent)" : undefined,
-                  }}
-                >
-                  <td
-                    onClick={(e) => e.stopPropagation()}
-                    style={{
-                      position: "sticky",
-                      left: 0,
-                      zIndex: 1,
-                      textAlign: "center",
-                      background: selectedIds.has(o.id)
-                        ? "color-mix(in srgb, var(--color-brand) 10%, transparent)"
-                        : "var(--bg-card)",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(o.id)}
-                      onChange={() => toggleSelect(o.id)}
-                      aria-label={`Select order ${o.orderNo}`}
+              {monthGroups
+                ? monthGroups.map((g) => (
+                    <OrderMonthGroup
+                      key={g.key}
+                      group={g}
+                      totalRows={filtered.length}
+                      renderRow={(o) => (
+                        <OrderRow
+                          key={o.id}
+                          o={o}
+                          riders={riders}
+                          selectedIds={selectedIds}
+                          toggleSelect={toggleSelect}
+                        />
+                      )}
                     />
-                  </td>
-                  <td style={{ color: "var(--accent-green)", fontWeight: 600 }}><a href={`/orders/${o.id}`} style={{ color: "inherit", textDecoration: "none" }}>{o.orderNo}</a></td>
-                  <td style={{ color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{o.date}</td>
-                  <td>
-                    <span style={{ fontWeight: 500 }}>{o.customerName || "—"}</span>
-                    {o.customerPhone && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{o.customerPhone}</div>}
-                  </td>
-                  <td className="hide-mobile" style={{ color: "var(--text-secondary)", fontSize: 12, maxWidth: 260 }}>
-                    {o.items.length === 0 ? (
-                      <span style={{ color: "var(--text-muted)" }}>—</span>
-                    ) : (
-                      <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-                        {o.items.map((it, i) => (
-                          <li key={i} style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                            <span style={{ color: "var(--accent-green)", fontWeight: 700, fontVariantNumeric: "tabular-nums", minWidth: 38, flexShrink: 0 }}>
-                              {it.qty}{it.unit}
-                            </span>
-                            <span style={{ color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={it.nameBn || it.name}>
-                              {it.nameBn || it.name}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </td>
-                  <td className="hide-mobile">
-                    {o.area || o.address ? (
-                      <>
-                        <span style={{ fontWeight: 500 }}>{o.area || "—"}</span>
-                        {o.address && (
-                          <div style={{ fontSize: 11, color: "var(--text-muted)", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={o.address}>
-                            {o.address}
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td className="hide-mobile">
-                    {o.cluster ? (
-                      <span
-                        title={`${CLUSTER_LABELS[o.cluster]}${o.subCluster ? ` · ${o.subCluster}` : ""}`}
-                        style={{
-                          display: "inline-block",
-                          fontSize: 11,
-                          fontWeight: 700,
-                          padding: "3px 8px",
-                          borderRadius: 6,
-                          color: CLUSTER_COLORS[o.cluster],
-                          background: `${CLUSTER_COLORS[o.cluster]}22`,
-                          border: `1px solid ${CLUSTER_COLORS[o.cluster]}55`,
-                        }}
-                      >
-                        {CLUSTER_SHORT[o.cluster]}
-                        {o.subCluster && (
-                          <span style={{ fontWeight: 400, marginLeft: 4, opacity: 0.8 }}>· {o.subCluster}</span>
-                        )}
-                      </span>
-                    ) : (
-                      <span style={{ color: "var(--text-muted)", fontSize: 12 }}>—</span>
-                    )}
-                  </td>
-                  <td style={{ fontWeight: 600 }}>{formatMoney(o.total)}</td>
-                  <td className="hide-mobile" style={{ color: o.paid >= o.total ? "var(--accent-green)" : "var(--accent-amber)" }}>
-                    {formatMoney(o.paid)}
-                  </td>
-                  <td className="hide-mobile" style={{ fontWeight: 600, color: (o.total - o.paid) > 0 ? "var(--accent-red)" : "var(--accent-green)" }}>
-                    {formatMoney(o.total - o.paid)}
-                  </td>
-                  <td className="hide-mobile" style={{ color: "var(--text-secondary)", fontSize: 12, whiteSpace: "nowrap" }}>
-                    {o.deliveredAt
-                      ? `Delivered: ${bdParts(o.deliveredAt).date}`
-                      : o.confirmedAt
-                      ? `Confirmed: ${bdParts(o.confirmedAt).date}`
-                      : `Created: ${bdParts(o.createdAt).date}`}
-                  </td>
-                  <td className="hide-mobile" style={{ fontSize: 13 }}>
-                    {o.deliveryMode === "pathao" ? (
-                      <span style={{ color: "var(--accent-amber)", fontWeight: 600 }}>Pathao</span>
-                    ) : o.riderId ? (
-                      <span style={{ fontWeight: 600 }}>
-                        {riders.find((r) => r.id === o.riderId)?.name || o.riderName || `Rider #${o.riderId}`}
-                      </span>
-                    ) : (
-                      <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>Unassigned</span>
-                    )}
-                  </td>
-                  <td>
-                    <StatusBadge status={o.status} />
-                  </td>
-                  <td className="hide-mobile">
-                    <span
-                      style={{
-                        fontSize: 11,
-                        padding: "2px 8px",
-                        borderRadius: 20,
-                        background: `${SOURCE_COLORS[o.source] || SOURCE_COLORS.manual}22`,
-                        color: SOURCE_COLORS[o.source] || SOURCE_COLORS.manual,
-                        border: `1px solid ${SOURCE_COLORS[o.source] || SOURCE_COLORS.manual}55`,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {SOURCE_LABELS[o.source] || o.source}
-                    </span>
-                  </td>
-                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                    <button
-                      className="btn btn-secondary"
-                      style={{ fontSize: 11, padding: "4px 10px" }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        window.open(`/orders/${o.id}?print=1`, "_blank");
-                      }}
-                      title="Open invoice in a new tab — Ctrl+P to print"
-                    >
-                      <Printer size={12} /> Print
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                  ))
+                : filtered.map((o) => (
+                    <OrderRow
+                      key={o.id}
+                      o={o}
+                      riders={riders}
+                      selectedIds={selectedIds}
+                      toggleSelect={toggleSelect}
+                    />
+                  ))}
             </tbody>
             {filtered.length > 0 && (
               <tfoot>
@@ -1179,5 +1117,224 @@ function OrdersPageContent() {
         </div>
       )}
     </div>
+  );
+}
+
+/** Single order row in the operator table. Extracted so the flat render
+ *  and the month-grouped render share exactly the same row markup. */
+function OrderRow({
+  o,
+  riders,
+  selectedIds,
+  toggleSelect,
+}: {
+  o: Order;
+  riders: Rider[];
+  selectedIds: Set<number>;
+  toggleSelect: (id: number) => void;
+}) {
+  return (
+    <tr
+      onClick={() => (window.location.href = `/orders/${o.id}`)}
+      style={{
+        cursor: "pointer",
+        background: selectedIds.has(o.id) ? "color-mix(in srgb, var(--color-brand) 10%, transparent)" : undefined,
+      }}
+    >
+      <td
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: "sticky",
+          left: 0,
+          zIndex: 1,
+          textAlign: "center",
+          background: selectedIds.has(o.id)
+            ? "color-mix(in srgb, var(--color-brand) 10%, transparent)"
+            : "var(--bg-card)",
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={selectedIds.has(o.id)}
+          onChange={() => toggleSelect(o.id)}
+          aria-label={`Select order ${o.orderNo}`}
+        />
+      </td>
+      <td style={{ color: "var(--accent-green)", fontWeight: 600 }}>
+        <a href={`/orders/${o.id}`} style={{ color: "inherit", textDecoration: "none" }}>{o.orderNo}</a>
+      </td>
+      <td style={{ color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{o.date}</td>
+      <td>
+        <span style={{ fontWeight: 500 }}>{o.customerName || "—"}</span>
+        {o.customerPhone && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{o.customerPhone}</div>}
+      </td>
+      <td className="hide-mobile" style={{ color: "var(--text-secondary)", fontSize: 12, maxWidth: 260 }}>
+        {o.items.length === 0 ? (
+          <span style={{ color: "var(--text-muted)" }}>—</span>
+        ) : (
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+            {o.items.map((it, i) => (
+              <li key={i} style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                <span style={{ color: "var(--accent-green)", fontWeight: 700, fontVariantNumeric: "tabular-nums", minWidth: 38, flexShrink: 0 }}>
+                  {it.qty}{it.unit}
+                </span>
+                <span style={{ color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={it.nameBn || it.name}>
+                  {it.nameBn || it.name}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </td>
+      <td className="hide-mobile">
+        {o.area || o.address ? (
+          <>
+            <span style={{ fontWeight: 500 }}>{o.area || "—"}</span>
+            {o.address && (
+              <div style={{ fontSize: 11, color: "var(--text-muted)", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={o.address}>
+                {o.address}
+              </div>
+            )}
+          </>
+        ) : (
+          "—"
+        )}
+      </td>
+      <td className="hide-mobile">
+        {o.cluster ? (
+          <span
+            title={`${CLUSTER_LABELS[o.cluster]}${o.subCluster ? ` · ${o.subCluster}` : ""}`}
+            style={{
+              display: "inline-block",
+              fontSize: 11,
+              fontWeight: 700,
+              padding: "3px 8px",
+              borderRadius: 6,
+              color: CLUSTER_COLORS[o.cluster],
+              background: `${CLUSTER_COLORS[o.cluster]}22`,
+              border: `1px solid ${CLUSTER_COLORS[o.cluster]}55`,
+            }}
+          >
+            {CLUSTER_SHORT[o.cluster]}
+            {o.subCluster && (
+              <span style={{ fontWeight: 400, marginLeft: 4, opacity: 0.8 }}>· {o.subCluster}</span>
+            )}
+          </span>
+        ) : (
+          <span style={{ color: "var(--text-muted)", fontSize: 12 }}>—</span>
+        )}
+      </td>
+      <td style={{ fontWeight: 600 }}>{formatMoney(o.total)}</td>
+      <td className="hide-mobile" style={{ color: o.paid >= o.total ? "var(--accent-green)" : "var(--accent-amber)" }}>
+        {formatMoney(o.paid)}
+      </td>
+      <td className="hide-mobile" style={{ fontWeight: 600, color: (o.total - o.paid) > 0 ? "var(--accent-red)" : "var(--accent-green)" }}>
+        {formatMoney(o.total - o.paid)}
+      </td>
+      <td className="hide-mobile" style={{ color: "var(--text-secondary)", fontSize: 12, whiteSpace: "nowrap" }}>
+        {o.deliveredAt
+          ? `Delivered: ${bdParts(o.deliveredAt).date}`
+          : o.confirmedAt
+          ? `Confirmed: ${bdParts(o.confirmedAt).date}`
+          : `Created: ${bdParts(o.createdAt).date}`}
+      </td>
+      <td className="hide-mobile" style={{ fontSize: 13 }}>
+        {o.deliveryMode === "pathao" ? (
+          <span style={{ color: "var(--accent-amber)", fontWeight: 600 }}>Pathao</span>
+        ) : o.riderId ? (
+          <span style={{ fontWeight: 600 }}>
+            {riders.find((r) => r.id === o.riderId)?.name || o.riderName || `Rider #${o.riderId}`}
+          </span>
+        ) : (
+          <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>Unassigned</span>
+        )}
+      </td>
+      <td>
+        <StatusBadge status={o.status} />
+      </td>
+      <td className="hide-mobile">
+        <span
+          style={{
+            fontSize: 11,
+            padding: "2px 8px",
+            borderRadius: 20,
+            background: `${SOURCE_COLORS[o.source] || SOURCE_COLORS.manual}22`,
+            color: SOURCE_COLORS[o.source] || SOURCE_COLORS.manual,
+            border: `1px solid ${SOURCE_COLORS[o.source] || SOURCE_COLORS.manual}55`,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {SOURCE_LABELS[o.source] || o.source}
+        </span>
+      </td>
+      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+        <button
+          className="btn btn-secondary"
+          style={{ fontSize: 11, padding: "4px 10px" }}
+          onClick={(e) => {
+            e.stopPropagation();
+            window.open(`/orders/${o.id}?print=1`, "_blank");
+          }}
+          title="Open invoice in a new tab — Ctrl+P to print"
+        >
+          <Printer size={12} /> Print
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+/** Month section header + the orders that fall under it. Sits inside
+ *  the same <tbody> as the rows so it scrolls with them. */
+function OrderMonthGroup({
+  group,
+  renderRow,
+}: {
+  group: MonthGroup;
+  totalRows: number;
+  renderRow: (o: Order) => React.ReactElement;
+}) {
+  // Stick the section header to the top of the visible viewport so the
+  // operator always knows which month's block they're scanning.
+  return (
+    <>
+      <tr>
+        <td
+          colSpan={15}
+          style={{
+            background:
+              "color-mix(in srgb, var(--color-brand) 14%, var(--bg-card))",
+            borderTop: "1px solid var(--color-border, var(--border))",
+            borderBottom: "1px solid var(--color-border, var(--border))",
+            color: "var(--text-primary)",
+            fontSize: 12,
+            fontWeight: 700,
+            letterSpacing: 0.4,
+            textTransform: "uppercase",
+            padding: "8px 12px",
+            position: "sticky",
+            top: 0,
+            zIndex: 1,
+          }}
+        >
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <Calendar size={13} color="var(--accent-green)" />
+            {group.label}
+          </span>
+          <span style={{ marginLeft: 12, color: "var(--text-secondary)", fontWeight: 600, textTransform: "none" }}>
+            {group.orders.length} order{group.orders.length !== 1 ? "s" : ""}
+          </span>
+          <span style={{ marginLeft: 12, color: "var(--accent-green)", fontWeight: 700, textTransform: "none" }}>
+            {formatMoney(group.total)}
+          </span>
+          {group.deliveredCount > 0 && (
+            <span style={{ marginLeft: 12, color: "var(--text-muted)", fontWeight: 500, textTransform: "none" }}>
+              {group.deliveredCount} delivered
+            </span>
+          )}
+        </td>
+      </tr>
+      {group.orders.map((o) => renderRow(o))}
+    </>
   );
 }
