@@ -132,14 +132,20 @@ function OrderDetailInner() {
         fetch("/api/products").then((r) => r.json()),
         fetch("/api/customers").then((r) => r.json()),
       ]);
-      setOrder(o);
+      // The /api/orders/[id] endpoint returns an error envelope
+      // ({ ok: false, error: ... }) for not-found or 4xx/5xx. If we
+      // get that shape, treat it as "no order loaded" so the existing
+      // `if (!order)` guard shows "Order not found." instead of crashing
+      // with `order.items.map` on an undefined items array.
+      const orderObj = o && Array.isArray(o.items) ? o : null;
+      setOrder(orderObj);
       setRiders(r);
       setSettings(s);
       setProducts(p);
       setCustomers(c);
       // Pick the invoice format & partner automatically based on the order's
       // delivery mode. The user can still override on the page.
-      if (o.deliveryMode === "pathao" && (s.deliveryPartners?.length ?? 0) > 0) {
+      if (orderObj?.deliveryMode === "pathao" && (s.deliveryPartners?.length ?? 0) > 0) {
         setInvoiceFormat("partner");
         const pathao =
           s.deliveryPartners?.find((p: { name: string }) => /pathao/i.test(p.name)) ?? s.deliveryPartners?.[0];

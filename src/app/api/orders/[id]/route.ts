@@ -11,9 +11,17 @@ import {
 import { getCompanyIdFromRequest } from "@/lib/tenant";
 import { requireAdminCookie } from "@/lib/auth/admin-cookie-gate";
 
+/** GET /api/orders/[id] — read-only order lookup, no admin gate.
+ *
+ *  The order-detail page renders for dispatchers who haven't unlocked
+ *  admin mode for the current browser session (they only click "unlock
+ *  admin" when they need to perform an admin-only action). Gating this
+ *  GET would force them to unlock for every order click. The proxy
+ *  blocks rider sessions from /orders/* paths (returns 403 before
+ *  reaching here), so a rider cannot reach this endpoint at all.
+ *
+ *  PUT and DELETE keep the admin gate because those mutate state. */
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const denied = requireAdminCookie(request);
-  if (denied) return denied;
   const companyId = await getCompanyIdFromRequest(request);
   const { id: idParam } = await params;
   const order = getOrder(Number(idParam), companyId);
