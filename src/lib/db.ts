@@ -4014,10 +4014,121 @@ export function getRiderAssignedOrdersAcrossTenants(
           AND deliveryMode != 'pathao'
         ORDER BY CASE WHEN riderSeq IS NULL THEN 1 ELSE 0 END,
                  riderSeq ASC,
-                 id ASC`
+                  id ASC`
     )
     .all(riderId, date) as Record<string, unknown>[];
   return rows.map(rowToOrder);
+}
+
+/** Lifetime aggregation for a rider: total deliveries, total COD collected,
+ *  total rider payout, days worked, and a per-month breakdown for the last
+ *  12 months. Aggregates over every tenant the rider is shared across, so
+ *  the rider's number is the same number the dispatcher sees on every board. */
+export interface RiderLifetimeStats {
+  /** Day they first delivered (or null if never delivered). */
+  firstDelivery: string | null;
+  totalDelivered: number;
+  totalFailed: number;
+  totalCodCollected: number;
+  totalPayout: number;
+  /** Distinct calendar days the rider closed at least one delivery. */
+  daysWorked: number;
+  /** Last 12 calendar months, oldest → newest, ISO month key e.g. "2026-09". */
+  monthly: Array<{
+    month: string;
+    delivered: number;
+    failed: number;
+    cod: number;
+    payout: number;
+  }>;
+}
+
+export function getRiderLifetimeStats(riderId: number): RiderLifetimeStats {
+  const db = getDb();
+  const overall = db
+    .prepare(
+      `SELECT
+         SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) AS totalDelivered,
+         SUM(CASE WHEN status IN ('cancelled', 'returned') THEN 1 ELSE 0 END) AS totalFailed,
+         SUM(CASE WHEN status = 'delivered' AND paymentMethod = 'cod'
+                  THEN MAX(0, total - COALESCE(paid, 0)) ELSE 0 END) AS totalCod,
+         SUM(CASE WHEN status = 'delivered' THEN COALESCE(riderCost, 0) ELSE 0 END) AS totalPayout,
+         MIN(CASE WHEN status = 'delivered' THEN date END) AS firstDelivery,
+         COUNT(DISTINCT CASE WHEN status = 'delivered' THEN date END) AS daysWorked
+       FROM orders
+       WHERE riderId = ? AND deliveryMode != 'pathao'`,
+    )
+    .get(riderId) as
+    | {
+        totalDelivered: number | null;
+        totalFailed: number | null;
+        totalCod: number | null;
+        totalPayout: number | null;
+        firstDelivery: string | null;
+        daysWorked: number | null;
+      }
+    | undefined;
+
+  const now = new Date();
+  const months: RiderLifetimeStats["monthly"] = [];
+  for (let i = 11; i >= 0; i--) {
+    const dt = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, "0");
+    months.push({
+      month: `${y}-${m}`,
+      delivered: 0,
+      failed: 0,
+      cod: 0,
+      payout: 0,
+    });
+  }
+  const monthIndex = new Map(months.map((m, i) => [m.month, i]));
+  const all = db
+    .prepare(
+      `SELECT status, date, paymentMethod, total, paid, riderCost
+         FROM orders
+         WHERE riderId = ?
+           AND deliveryMode != 'pathao'
+           AND date >= ?`,
+    )
+    .all(
+      riderId,
+      months[0].month + "-01",
+    ) as Array<{
+      status: string;
+      date: string;
+      paymentMethod: string;
+      total: number;
+      paid: number | null;
+      riderCost: number | null;
+    }>;
+
+  for (const row of all) {
+    const ym = row.date.slice(0, 7);
+    const idx = monthIndex.get(ym);
+    if (idx === undefined) continue;
+    const bucket = months[idx];
+    if (row.status === "delivered") {
+      bucket.delivered += 1;
+      if (row.paymentMethod === "cod") {
+        bucket.cod += Math.max(0, row.total - (row.paid ?? 0));
+      }
+      bucket.payout += row.riderCost ?? 0;
+    } else if (row.status === "cancelled" || row.status === "returned") {
+      bucket.failed += 1;
+    }
+  }
+
+  return {
+    firstDelivery: overall?.firstDelivery ?? null,
+    totalDelivered: overall?.totalDelivered ?? 0,
+    totalFailed: overall?.totalFailed ?? 0,
+    totalCodCollected: Math.round((overall?.totalCod ?? 0) * 100) / 100,
+    totalPayout: Math.round((overall?.totalPayout ?? 0) * 100) / 100,
+    daysWorked: overall?.daysWorked ?? 0,
+    monthly: months,
+  };
 }
 
 /** Single-order lookup that enforces the rider ↔ order ownership rule at
