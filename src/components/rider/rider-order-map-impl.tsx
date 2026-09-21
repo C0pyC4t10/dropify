@@ -3,18 +3,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from "react-leaflet";
 import { RefreshCw } from "lucide-react";
 
 export interface RiderOrderMapProps {
-  /** The geocoded point stored on the order. */
   pin: { lat: number; lng: number };
-  /** Order number shown in the popup. */
   orderNo: string;
-  /** Customer name shown in the popup. */
   customerName: string;
-  /** Address text shown under the title. */
   address: string;
+  /** Optional: when true, the rider can tap anywhere on the map to relocate
+   *  the pin. The updated pin position is reported via onPinMove. */
+  allowRelocate?: boolean;
+  onPinMove?: (newPin: { lat: number; lng: number }) => void;
 }
 
 /** Inner component that knows the rider's GPS and renders the Leaflet map.
@@ -24,6 +24,8 @@ export default function RiderOrderMapImpl({
   orderNo,
   customerName,
   address,
+  allowRelocate = false,
+  onPinMove,
 }: RiderOrderMapProps) {
   const [riderPos, setRiderPos] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsStatus, setGpsStatus] = useState<"idle" | "locating" | "ok" | "denied" | "error">("idle");
@@ -103,7 +105,7 @@ export default function RiderOrderMapImpl({
     <div style={{ position: "relative", height: "100%", width: "100%" }}>
       <style>{`
         .rdr-pin, .rdr-self { background: transparent !important; border: 0 !important; }
-        .leaflet-container { font-family: inherit; background: #1a1a1a; }
+        .leaflet-container { font-family: inherit; background: #1a1a1a; cursor: ${allowRelocate ? "crosshair" : "grab"}; }
         .leaflet-control-attribution { font-size: 9px; opacity: 0.6; }
         .leaflet-control-zoom a { width: 32px; height: 32px; line-height: 32px; font-size: 16px; }
         @keyframes rdr-pulse {
@@ -124,12 +126,33 @@ export default function RiderOrderMapImpl({
           maxZoom={19}
         />
         <FitBounds pin={pin} riderPos={riderPos} />
-        <Marker position={[pin.lat, pin.lng]} icon={pinIcon}>
+        {allowRelocate && onPinMove && <TapToRelocate onMove={onPinMove} />}
+        <Marker
+          position={[pin.lat, pin.lng]}
+          icon={pinIcon}
+          draggable={allowRelocate}
+          eventHandlers={
+            allowRelocate && onPinMove
+              ? {
+                  dragend: (e: L.LeafletEvent) => {
+                    const m = e.target as L.Marker;
+                    const ll = m.getLatLng();
+                    onPinMove({ lat: ll.lat, lng: ll.lng });
+                  },
+                }
+              : undefined
+          }
+        >
           <Popup>
             <div style={{ minWidth: 180 }}>
               <div style={{ fontWeight: 700, marginBottom: 4 }}>{orderNo}</div>
               <div style={{ fontSize: 12, color: "#444" }}>{customerName}</div>
               <div style={{ fontSize: 11, color: "#666", marginTop: 4 }}>{address || "(no address)"}</div>
+              {allowRelocate && (
+                <div style={{ fontSize: 11, color: "#1d6fe0", marginTop: 6, fontWeight: 600 }}>
+                  Drag the pin or tap the map to relocate.
+                </div>
+              )}
               {farWarning && (
                 <div style={{ fontSize: 11, color: "#dc2626", marginTop: 6, fontWeight: 600 }}>
                   Pin may be off — call customer to confirm.
@@ -200,5 +223,17 @@ function FitBounds({
       map.setView([pin.lat, pin.lng], 16);
     }
   }, [map, pin.lat, pin.lng, riderPos]);
+  return null;
+}
+
+/** Tap-to-relocate handler. Tapping anywhere on the map calls onMove with
+ *  the tapped coordinates — the parent updates the pin state and the marker
+ *  re-renders at the new spot. */
+function TapToRelocate({ onMove }: { onMove: (p: { lat: number; lng: number }) => void }) {
+  useMapEvents({
+    click(e) {
+      onMove({ lat: e.latlng.lat, lng: e.latlng.lng });
+    },
+  });
   return null;
 }
