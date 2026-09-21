@@ -101,6 +101,58 @@ function getShopIcon(label: string): L.DivIcon {
   return icon;
 }
 
+/**
+ * Spread overlapping markers onto a small circle around the shared point
+ * so every stop stays visible on the map. Pins with a unique lat/lng are
+ * returned unchanged. Pins that cluster (e.g. all three orders for the
+ * same area share the area centroid until the operator drops a per-order
+ * pin) get pushed onto a circle of `radius` meters around the centroid;
+ * angle = 2π * i / N, starting at the top so the layout reads top→clockwise.
+ *
+ * Uses an approximation for the meters→degrees conversion that is plenty
+ * accurate for offsets ≤ 100 m (urban block scale).
+ */
+function jitterOverlappingStops(
+  stops: MapStop[],
+  radius: number = 28,
+): MapStop[] {
+  if (stops.length < 2) return stops;
+  // Cluster by ~1 m precision (5 decimal places of lat/lng). Any cluster
+  // of size > 1 needs un-stacking; singletons keep their original spot.
+  const groups = new Map<string, MapStop[]>();
+  for (const s of stops) {
+    const k = `${s.lat.toFixed(5)},${s.lng.toFixed(5)}`;
+    const arr = groups.get(k);
+    if (arr) arr.push(s);
+    else groups.set(k, [s]);
+  }
+  const out: MapStop[] = [];
+  for (const cluster of groups.values()) {
+    if (cluster.length === 1) {
+      out.push(cluster[0]);
+      continue;
+    }
+    const n = cluster.length;
+    const cLat = cluster[0].lat;
+    const cLng = cluster[0].lng;
+    const metersPerDegLat = 111_320;
+    const metersPerDegLng = 111_320 * Math.cos((cLat * Math.PI) / 180);
+    for (let i = 0; i < n; i++) {
+      // -π/2 so the first offset is at the top (12 o'clock), then sweep
+      // clockwise. Makes the cluster read sensibly in a north-up layout.
+      const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
+      const dLat = (radius * Math.cos(angle)) / metersPerDegLat;
+      const dLng = (radius * Math.sin(angle)) / metersPerDegLng;
+      out.push({
+        ...cluster[i],
+        lat: cLat + dLat,
+        lng: cLng + dLng,
+      });
+    }
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // FitBoundsOnChange — re-fit only when the set of point COORDINATES actually
 // changes. Uses a memoized signature string instead of a JSON.stringify in
@@ -163,7 +215,19 @@ function RouteMap({
   // prop every render and Leaflet doesn't re-mount the marker DOM.
   const shopIcon = useMemo(() => getShopIcon(shopLabel), [shopLabel]);
 
+  // Marker positions: when multiple stops share the exact same lat/lng
+  // (typical for orders in the same area — they all fall on the area
+  // centroid until the operator drops a per-order pin), Leaflet would
+  // stack their DivIcons on top of each other and the rider's map would
+  // look like one pin instead of N. Spread overlapping markers onto a
+  // small circle around the shared point so every stop stays visible and
+  // clickable. The polyline geometry stays anchored to the original
+  // (un-jittered) lat/lng so the displayed route matches reality.
+  const markerStops = useMemo(() => jitterOverlappingStops(stops), [stops]);
+
   // Polyline geometry (only when drawRoute is on and we have ≥2 points).
+  // Uses the ORIGINAL stop positions, not the jittered marker positions,
+  // so the route line doesn't kink around jittered pins.
   const route: Array<[number, number]> = useMemo(() => {
     if (!drawRoute) return [];
     return [shop, ...stops].map((p) => [p.lat, p.lng] as [number, number]);
@@ -251,7 +315,7 @@ function RouteMap({
           </Popup>
         </Marker>
 
-        {stops.map((s) => (
+        {markerStops.map((s) => (
           <Marker
             key={s.orderId}
             position={[s.lat, s.lng]}
