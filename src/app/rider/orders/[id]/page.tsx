@@ -222,12 +222,12 @@ export default function RiderOrderDetailPage() {
         )}
 
         {/* POD summary */}
-        {/* Only render the POD card when (a) the order is actually delivered,
-            or (b) there's meaningful POD activity (photo, OTP, or COD). A POD
-            row alone isn't enough — the rider app shouldn't see stale proof
-            data from a previous delivery / re-assignment on an order that
-            hasn't actually been closed yet. */}
-        {pod && (order.status === "delivered" || hasActualPod(pod)) && (
+        {/* Only render the POD card when the order has actually reached a
+            terminal status. Stale POD data (a leftover row with
+            otpVerified=true from a previous delivery, a re-assignment, or
+            the empty row the rider app inserts on first 'Send code' tap)
+            is hidden entirely on orders still in flight. */}
+        {pod && (order.status === "delivered" || order.status === "returned" || order.status === "cancelled") && (
           <div style={cardStyle}>
             <div style={cardHeaderStyle}>
               <Receipt size={14} aria-hidden style={{ color: "var(--color-text-muted)" }} />
@@ -330,18 +330,6 @@ function initialsOf(name: string): string {
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("");
-}
-
-/** A POD row by itself isn't meaningful — only show the POD card when
- *  there's actual proof data on it. An empty POD row (created when the
- *  rider first tapped 'Send code' on an old delivery) shouldn't bleed
- *  through to a freshly re-assigned order. */
-function hasActualPod(pod: NonNullable<PodInfo>): boolean {
-  return (
-    pod.otpVerified ||
-    (typeof pod.photoPath === "string" && pod.photoPath.length > 0) ||
-    pod.amountCollected !== null
-  );
 }
 
 function PodRow({ icon, label, ok }: { icon: React.ReactNode; label: string; ok: boolean }) {
