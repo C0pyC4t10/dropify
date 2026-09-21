@@ -81,6 +81,12 @@ export async function POST(
     markDeliveryOtpSmsSent(created.id);
   }
 
+  // Persist the SMS failure reason on the audit row so the dispatch
+  // board can surface "Your ip X not Whitelisted" (or whatever
+  // BulksmsBD replied) next to the OTP badge.
+  const reason = sendResult.ok
+    ? `otp_dispatched:last4=••${created.code.slice(-2)}:by=${actorName}:sms=ok`
+    : `otp_dispatched:last4=••${created.code.slice(-2)}:by=${actorName}:sms=fail:err=${(sendResult.error ?? "unknown").slice(0, 200)}`;
   insertDeliveryStatusHistory({
     orderId,
     fromStatus: order.status,
@@ -88,7 +94,7 @@ export async function POST(
     actorType: "admin",
     actorId: 0,
     actorName,
-    reason: `otp_dispatched:last4=••${created.code.slice(-2)}:by=${actorName}:sms=${sendResult.ok ? "ok" : "fail"}`,
+    reason,
   });
 
   return NextResponse.json({

@@ -31,6 +31,8 @@ interface DispatchOrder {
     amountCollected: number | null;
     expectedAmount: number | null;
     otpDispatchedAt: string | null;
+    otpSmsDelivered: boolean;
+    otpSmsError: string | null;
     otpLast4: string | null;
     otpAttempts: number;
     otpExpired: boolean;
@@ -403,6 +405,7 @@ function OrderCard({
   const otpSkipped = order.pod?.lastTransitionReason?.includes("admin_override_pod_bypass") || (!order.pod?.otpVerified && order.status === "delivered");
 
   const otpSent = order.pod?.otpDispatchedAt;
+  const otpSmsDelivered = order.pod?.otpSmsDelivered ?? true;
   const otpExpired = order.pod?.otpExpired;
   const otpActive = !!otpSent && !otpExpired && !order.pod?.otpVerified;
 
@@ -440,22 +443,34 @@ function OrderCard({
             marginTop: 6,
             padding: "4px 6px",
             borderRadius: 6,
-            background: otpExpired
-              ? "var(--tint-warning-18)"
-              : otpActive
-                ? "var(--tint-info-12)"
-                : "var(--tint-success-18)",
-            color: otpExpired
-              ? "#8a6d00"
-              : otpActive
-                ? "var(--color-info)"
-                : "var(--color-success)",
+            background: otpSmsDelivered === false
+              ? "var(--tint-danger-18)"
+              : otpExpired
+                ? "var(--tint-warning-18)"
+                : otpActive
+                  ? "var(--tint-info-12)"
+                  : "var(--tint-success-18)",
+            color: otpSmsDelivered === false
+              ? "var(--color-danger)"
+              : otpExpired
+                ? "#8a6d00"
+                : otpActive
+                  ? "var(--color-info)"
+                  : "var(--color-success)",
           }}
-          title={otpSent}
+          title={otpSmsDelivered === false ? (order.pod?.otpSmsError ?? "SMS not delivered") : otpSent}
         >
-          OTP sent ••{order.pod?.otpLast4} ·{" "}
+          {otpSmsDelivered === false
+            ? "SMS not delivered"
+            : `OTP sent ••${order.pod?.otpLast4}`}{" "}
+          ·{" "}
           {new Date(otpSent).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
           {otpExpired ? " (expired)" : otpActive ? " (active)" : " (verified)"}
+          {otpSmsDelivered === false && order.pod?.otpSmsError && (
+            <div style={{ fontSize: 10, marginTop: 2, opacity: 0.85 }}>
+              {order.pod.otpSmsError}
+            </div>
+          )}
           {order.pod && order.pod.otpAttempts > 0 && (
             <span style={{ marginLeft: 6, opacity: 0.7 }}>{order.pod.otpAttempts} attempt{order.pod.otpAttempts === 1 ? "" : "s"}</span>
           )}

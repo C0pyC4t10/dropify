@@ -9,6 +9,7 @@ import { getAreaCentroid, listAreaCentroids } from "./area-centroids";
 import { getLocationForArea } from "./locations";
 import { haversineMeters } from "./geo";
 import { geocodeAddress } from "./geocode";
+import { otpLast4FromHash } from "./otp-hint";
 import type {
   Category,
   Company,
@@ -4217,6 +4218,13 @@ export interface DispatchRow {
     otpLast4: string | null;
     otpAttempts: number;
     otpExpired: boolean;
+    /** True when the SMS adapter reported `ok: true` for the most recent
+     *  send. False when BulksmsBD / other provider rejected the request
+     *  (IP not whitelisted, bad key, sender ID unapproved, etc.). Lets the
+     *  dispatch board surface 'OTP generated but SMS not delivered' instead
+     *  of silently showing 'OTP sent' when no SMS actually went out. */
+    otpSmsDelivered: boolean;
+    otpSmsError: string | null;
     lastTransitionReason: string;
     lastTransitionActor: string;
   }>;
@@ -4280,34 +4288,42 @@ export function getDispatchBoard(
       // customer" vs. "no code sent yet".
       const lastOtp = db
         .prepare(
-          `SELECT codeHash, createdAt, expiresAt, attempts
+          `SELECT codeHash, createdAt, expiresAt, attempts, deliveredSms
              FROM delivery_otps
             WHERE orderId = ?
             ORDER BY createdAt DESC, id DESC
             LIMIT 1`
         )
         .get(o.id) as
-        | { codeHash: string; createdAt: string; expiresAt: string; attempts: number }
+        | { codeHash: string; createdAt: string; expiresAt: string; attempts: number; deliveredSms: number }
         | undefined;
-      const otpLast4 = lastOtp
-        ? lastOtp.codeHash.length >= 4
-          ? Number(lastOtp.codeHash.slice(-4)) % 10000
-          : null
-        : null;
-      podByOrderId[o.id] = {
-        photoUploaded: !!pod?.photoPath,
-        otpVerified: !!pod?.otpVerified,
-        amountCollected: pod?.amountCollected ?? null,
-        expectedAmount: pod?.expectedAmount ?? null,
-        otpDispatchedAt: lastOtp?.createdAt ?? null,
-        otpLast4: otpLast4 != null ? String(otpLast4).padStart(4, "0") : null,
-        otpAttempts: lastOtp?.attempts ?? 0,
-        otpExpired: lastOtp ? new Date(lastOtp.expiresAt).getTime() < Date.now() : false,
-        lastTransitionReason: lastHistory?.reason ?? "",
-        lastTransitionActor: lastHistory
-          ? `${lastHistory.actorType}:${lastHistory.actorName}`
-          : "",
-      };
+        const otpLast4 = lastOtp ? otpLast4FromHash(lastOtp.codeHash) : null;
+        // Pull the SMS error message (if any) from the most recent
+        // otp_dispatched audit row. The reason format is
+        // `otp_dispatched:last4=••XX:by=...:sms=ok` or `:sms=fail:err=<msg>`.
+        const otpSmsError = (() => {
+          if (!lastHistory?.reason) return null;
+          if (!/otp_dispatched/.test(lastHistory.reason)) return null;
+          if (!/:sms=fail/.test(lastHistory.reason)) return null;
+          const m = lastHistory.reason.match(/:sms=fail:err=([^:]+)/);
+          return m ? m[1] : "fail";
+        })();
+        podByOrderId[o.id] = {
+          photoUploaded: !!pod?.photoPath,
+          otpVerified: !!pod?.otpVerified,
+          amountCollected: pod?.amountCollected ?? null,
+          expectedAmount: pod?.expectedAmount ?? null,
+          otpDispatchedAt: lastOtp?.createdAt ?? null,
+          otpLast4: otpLast4 != null ? String(otpLast4).padStart(4, "0") : null,
+          otpAttempts: lastOtp?.attempts ?? 0,
+          otpExpired: lastOtp ? new Date(lastOtp.expiresAt).getTime() < Date.now() : false,
+          otpSmsDelivered: lastOtp ? (lastOtp.deliveredSms ?? 0) === 1 : false,
+          otpSmsError,
+          lastTransitionReason: lastHistory?.reason ?? "",
+          lastTransitionActor: lastHistory
+            ? `${lastHistory.actorType}:${lastHistory.actorName}`
+            : "",
+        };
       if (o.status === "delivered" && o.paymentMethod === "cod") {
         totalCodDue += o.total - (o.paid || 0);
         if (pod?.amountCollected != null) totalCodCollected += pod.amountCollected;
