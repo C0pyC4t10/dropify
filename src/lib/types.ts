@@ -210,6 +210,13 @@ export interface Order {
   pathaoTrackingId: string;
   pathaoFare: number;
   riderId: number | null;
+  /**
+   * Snapshot of the rider's name. Copied onto the order at delete-time so
+   * print, history, and the public /track page keep showing the real name
+   * even after the rider row is hard-deleted. Live UI sites resolve
+   * `riderId → name` first and fall through to `riderName` for orphans.
+   */
+  riderName: string;
   riderCost: number;   // payout to own rider for this order (separate from customer delivery fee)
   /** Latitude for routing. Derived from area centroid at create time; can be refined by manual pin-drop. */
   lat: number | null;

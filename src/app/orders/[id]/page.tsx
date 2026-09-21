@@ -463,7 +463,7 @@ function OrderDetailInner() {
               </select>
               <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "10px 0 0" }}>
                 {order.riderId
-                  ? `Assigned to ${riders.find((r) => r.id === order.riderId)?.name || "rider"}`
+                  ? `Assigned to ${riders.find((r) => r.id === order.riderId)?.name || order.riderName || "rider"}`
                   : "No rider assigned yet."
                 }
               </p>
@@ -546,7 +546,7 @@ function OrderDetailInner() {
                 {order.pathaoTrackingId && <div>Tracking: {order.pathaoTrackingId}</div>}
               </>
             ) : (
-              <div>{order.riderId ? `Rider: ${riders.find((r) => r.id === order.riderId)?.name || ""}` : ""}</div>
+              <div>{order.riderId ? `Rider: ${riders.find((r) => r.id === order.riderId)?.name || order.riderName || ""}` : ""}</div>
             )}
             <div style={{ fontStyle: "italic", color: "var(--accent-red)", fontWeight: 500 }}>{order.note}</div>
           </div>

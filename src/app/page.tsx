@@ -295,7 +295,7 @@ export default function Dashboard() {
                         Pathao{o.pathaoTrackingId ? ` · ${o.pathaoTrackingId}` : ""}
                       </span>
                     ) : o.riderId ? (
-                      stats.activeRiders.find((r) => r.id === o.riderId)?.name || "?"
+                      stats.activeRiders.find((r) => r.id === o.riderId)?.name || o.riderName || "?"
                     ) : (
                       <span style={{ color: "var(--text-muted)" }}>Unassigned</span>
                     )}

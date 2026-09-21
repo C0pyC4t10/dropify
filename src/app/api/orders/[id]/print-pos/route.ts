@@ -322,7 +322,7 @@ async function detectPrinterProtocol(): Promise<string> {
  * "Bold" is faked by printing the same text twice with a 1-dot offset.
  */
 function buildTsplTextReceipt(
-  order: { orderNo: string; customerName: string; customerPhone?: string; area?: string; address?: string; items: { name: string; qty: number; unit: string; unitPrice: number; lineTotal: number }[]; subtotal: number; deliveryFee: number; discount: number; total: number; paid: number; paymentMethod: string; deliveryMode: string; pathaoTrackingId?: string; confirmedAt?: string; createdAt: string },
+  order: { orderNo: string; customerName: string; customerPhone?: string; area?: string; address?: string; items: { name: string; qty: number; unit: string; unitPrice: number; lineTotal: number }[]; subtotal: number; deliveryFee: number; discount: number; total: number; paid: number; paymentMethod: string; deliveryMode: string; pathaoTrackingId?: string; riderName?: string; confirmedAt?: string; createdAt: string },
   settings: { businessName: string; tagline?: string; address?: string; phone?: string; invoiceNote?: string; deliveryPartners?: { id: string; name: string; phone?: string; website?: string; notes?: string }[]; defaultDeliveryPartnerId?: string },
   rider: { name: string; vehicle: string } | null,
   printedAt: Date = new Date(),
@@ -489,6 +489,8 @@ function buildTsplTextReceipt(
     delivery = order.pathaoTrackingId ? `Pathao ${order.pathaoTrackingId}` : "Pathao";
   } else if (rider) {
     delivery = `${rider.name} (${rider.vehicle})`;
+  } else if (order.riderName) {
+    delivery = order.riderName;
   } else {
     delivery = "Unassigned";
   }

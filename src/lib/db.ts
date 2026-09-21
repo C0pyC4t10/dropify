@@ -410,6 +410,27 @@ function initSchema(db: Database.Database): void {
   if (!riderCols.includes("avatarPath")) {
     db.exec("ALTER TABLE riders ADD COLUMN avatarPath TEXT NOT NULL DEFAULT ''");
   }
+  // ── orders.riderName (denormalized snapshot) ──
+  // UI sites resolve riderId → name by joining the live riders table. After
+  // a rider row is hard-deleted that lookup returns undefined and the UI
+  // falls back to "Rider #N". To keep print, history, and the public /track
+  // page showing the rider's real name after the rider is gone, we copy
+  // the name onto the order itself at delete-time. Existing rows are
+  // backfilled in the same migration so the column is non-empty for every
+  // order whose rider still exists at upgrade time.
+  const orderHasRiderName = (db
+    .prepare("PRAGMA table_info(orders)")
+    .all() as Array<{ name: string }>)
+    .some((c) => c.name === "riderName");
+  if (!orderHasRiderName) {
+    db.exec("ALTER TABLE orders ADD COLUMN riderName TEXT NOT NULL DEFAULT ''");
+    // Backfill: copy name forward from the live rider row. Orders whose
+    // riderId no longer resolves (orphaned) stay empty — UI falls through
+    // to `#${riderId}` as before, so no regression.
+    db.exec(
+      "UPDATE orders SET riderName = (SELECT name FROM riders WHERE riders.id = orders.riderId) WHERE riderId IS NOT NULL"
+    );
+  }
   // ── Riders backfill (Phase 2 fix) ──
   // Existing riders imported before Phase 1 had no pinHash. Defaulting them
   // to accountStatus='active' is dishonest — "active" should mean "can log
@@ -1299,6 +1320,7 @@ function rowToOrder(r: Record<string, unknown>): Order {
     pathaoTrackingId: (r.pathaoTrackingId as string) ?? "",
     pathaoFare: (r.pathaoFare as number) ?? 0,
     riderId: (r.riderId as number | null) ?? null,
+    riderName: (r.riderName as string) ?? "",
     riderCost: (r.riderCost as number) ?? 0,
     lat: (r.lat as number | null) ?? null,
     lng: (r.lng as number | null) ?? null,
@@ -2441,6 +2463,73 @@ export function setRiderAvatarPath(riderId: number, avatarPath: string): Rider |
   return { ...existing, avatarPath };
 }
 
+/**
+ * Count a rider's open orders (anything not delivered, cancelled, or
+ * returned). Used as the safety guard before hard-deleting a rider — if the
+ * count is non-zero, the API returns 409 and the operator must reassign or
+ * close those orders first.
+ */
+export function countActiveRiderOrders(riderId: number): number {
+  const db = getDb();
+  const row = db
+    .prepare(
+      "SELECT COUNT(*) AS n FROM orders WHERE riderId = ? AND status NOT IN ('delivered', 'cancelled', 'returned')"
+    )
+    .get(riderId) as { n: number } | undefined;
+  return row?.n ?? 0;
+}
+
+/**
+ * List the open orders that block a rider delete. Used by the API + the
+ * confirm modal to render "Reassign or close these first:…" with deep links
+ * to each order's detail page.
+ */
+export function getActiveRiderOrderIds(riderId: number): Array<{ id: number; orderNo: string }> {
+  const db = getDb();
+  return db
+    .prepare(
+      "SELECT id, orderNo FROM orders WHERE riderId = ? AND status NOT IN ('delivered', 'cancelled', 'returned') ORDER BY id ASC"
+    )
+    .all(riderId) as Array<{ id: number; orderNo: string }>;
+}
+
+/**
+ * Hard-delete a rider. The riderName snapshot on every order owned by this
+ * rider is renewed with the rider's current name right before the row goes
+ * away, so print, history, and the public /track page keep showing the
+ * real name forever. Sessions for the rider are revoked (live devices get
+ * bumped) but rider_sessions and rider_login_audit rows are kept intact for
+ * security forensics.
+ *
+ * Caller MUST call countActiveRiderOrders first — this function does not
+ * refuse on active orders itself; that's enforced at the API layer so the
+ * caller can surface the conflicting order IDs.
+ */
+export function deleteRider(riderId: number): { deletedName: string; ordersArchived: number } {
+  const db = getDb();
+  const riders = getRiders();
+  const existing = riders.find((r) => r.id === riderId);
+  if (!existing) return { deletedName: "", ordersArchived: 0 };
+
+  // Snapshot the rider's name onto every order they own, including the ones
+  // we'll refuse to delete. Net effect: orders that referenced the rider at
+  // delete-time keep showing the right name in print + history.
+  const name = existing.name;
+  const tx = db.transaction(() => {
+    const stamp = db.prepare(
+      "UPDATE orders SET riderName = ? WHERE riderId = ? AND (riderName = '' OR riderName IS NULL)"
+    );
+    const stampAll = stamp.run(name, riderId);
+    // Sessions — revoke live ones so any device hits 401 on the next refresh.
+    db.prepare("UPDATE rider_sessions SET revokedAt = ? WHERE riderId = ? AND revokedAt = ''")
+      .run(new Date().toISOString(), riderId);
+    const del = db.prepare("DELETE FROM riders WHERE id = ?").run(riderId);
+    return { stampAll: stampAll.changes, deleted: del.changes };
+  });
+  const result = tx();
+  return { deletedName: name, ordersArchived: result.stampAll };
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Rider tracking public API (Phase 1: schema + auth foundation, no UI yet)
 //
@@ -3368,19 +3457,19 @@ export function createOrder(input: NewOrderInput, companyId: number): CreateOrde
   // not have eaten inventory.
   const stockDeductedAtCreate = false;
   // Build with explicit arrays so placeholder count and value count are
-  // guaranteed to match. 39 columns → 39 ? placeholders → 39 .run() args.
+  // guaranteed to match. 40 columns → 40 ? placeholders → 40 .run() args.
   const cols: Array<string> = [
     "id", "companyId", "orderNo", "date", "customerId", "customerName", "customerPhone",
     "area", "address", "items", "subtotal", "deliveryFee", "discount",
     "total", "paid", "paymentMethod", "status", "source", "deliveryMode",
-    "pathaoTrackingId", "pathaoFare", "riderId", "riderCost", "note",
+    "pathaoTrackingId", "pathaoFare", "riderId", "riderName", "riderCost", "note",
     "createdAt", "confirmedAt", "deliveredAt", "cancelledAt", "cancelReason",
     "returnedAt", "returnReason",
     "stockDeducted", "wpOrderId", "updatedAt", "lat", "lng", "riderSeq",
     "cluster", "subCluster",
   ];
-  if (cols.length !== 39) {
-    throw new Error(`orders INSERT column list length is ${cols.length}, expected 39`);
+  if (cols.length !== 40) {
+    throw new Error(`orders INSERT column list length is ${cols.length}, expected 40`);
   }
   const placeholders = cols.map(() => "?").join(", ");
   const sql = `INSERT INTO orders (${cols.join(", ")}) VALUES (${placeholders})`;
@@ -3409,6 +3498,7 @@ export function createOrder(input: NewOrderInput, companyId: number): CreateOrde
     input.pathaoTrackingId ?? "",                      // pathaoTrackingId
     input.pathaoFare ?? 0,                             // pathaoFare
     null,                                              // riderId
+    "",                                                // riderName — snapshot, populated later (on rider delete or via the loadRiderNames helper). Empty at create because no rider is assigned yet.
     input.riderCost ?? 0,                              // riderCost
     input.note,                                        // note
     now,                                               // createdAt
@@ -3896,9 +3986,11 @@ export function assignRider(
   if (!order) return null;
   // Assigning without a sequence means "this rider has the order but no plan yet".
   // We do NOT auto-clear riderSeq on unassign — the caller is responsible.
+  // riderName is also stamped on every assign so that, if the rider is later
+  // hard-deleted, the snapshot on the order stays accurate.
   db.prepare(
-    "UPDATE orders SET riderId = ?, updatedAt = ? WHERE id = ? AND companyId = ?"
-  ).run(riderId, new Date().toISOString(), orderId, companyId);
+    "UPDATE orders SET riderId = ?, riderName = COALESCE((SELECT name FROM riders WHERE id = ?), riderName), updatedAt = ? WHERE id = ? AND companyId = ?"
+  ).run(riderId, riderId, new Date().toISOString(), orderId, companyId);
   return getOrder(orderId, companyId) ?? null;
 }
 
@@ -3941,7 +4033,7 @@ export function setRiderPlan(
   const db = getDb();
   const now = new Date().toISOString();
   const setSeq = db.prepare(
-    "UPDATE orders SET riderId = ?, riderSeq = ?, updatedAt = ? WHERE id = ? AND companyId = ?"
+    "UPDATE orders SET riderId = ?, riderName = COALESCE((SELECT name FROM riders WHERE id = ?), riderName), riderSeq = ?, updatedAt = ? WHERE id = ? AND companyId = ?"
   );
   const keepOrphanUnassigned = db.prepare(
     "UPDATE orders SET riderId = NULL, riderSeq = NULL, updatedAt = ? WHERE id = ? AND companyId = ?"
@@ -3951,7 +4043,7 @@ export function setRiderPlan(
   let updated = 0;
   const tx = db.transaction(() => {
     for (const p of plan) {
-      setSeq.run(riderId, p.seq, now, p.orderId, companyId);
+      setSeq.run(riderId, riderId, p.seq, now, p.orderId, companyId);
       updated += 1;
     }
     // Find orders currently assigned to this rider that are no longer in the
@@ -4400,14 +4492,14 @@ export function getCodReconciliation(
                        THEN 1
                        ELSE 0 END) AS mismatchedOrders
          FROM orders o
-         LEFT JOIN proof_of_delivery p ON p.orderId = o.id
-        WHERE o.companyId = ?
-          AND o.date = ?
-          AND o.deliveryMode != 'pathao'
-          AND o.status = 'delivered'
-          AND o.paymentMethod = 'cod'
-          AND o.riderId IS NOT NULL
-        GROUP BY o.riderId`
+LEFT JOIN proof_of_delivery p ON p.orderId = o.id
+         WHERE o.companyId = ?
+           AND o.date = ?
+           AND o.deliveryMode != 'pathao'
+           AND o.status = 'delivered'
+           AND o.paymentMethod = 'cod'
+           AND o.riderId IS NOT NULL
+         GROUP BY o.riderId`
     )
     .all(companyId, date) as Array<{
       riderId: number;
@@ -4628,7 +4720,7 @@ export function autoAssignOrdersByCluster(date: string, companyId: number): Auto
   const assignedIds: number[] = [];
 
   const setAssign = db.prepare(
-    "UPDATE orders SET riderId = ?, updatedAt = ? WHERE id = ? AND companyId = ?"
+    "UPDATE orders SET riderId = ?, riderName = COALESCE((SELECT name FROM riders WHERE id = ?), riderName), updatedAt = ? WHERE id = ? AND companyId = ?"
   );
   const now = new Date().toISOString();
 
@@ -4660,7 +4752,7 @@ export function autoAssignOrdersByCluster(date: string, companyId: number): Auto
         unassignedByCluster[cluster] = (unassignedByCluster[cluster] ?? 0) + 1;
         continue;
       }
-      setAssign.run(picked.id, now, order.id, companyId);
+      setAssign.run(picked.id, picked.id, now, order.id, companyId);
       assignedIds.push(order.id);
       byCluster[cluster] = (byCluster[cluster] ?? 0) + 1;
       byRider[picked.id] = (byRider[picked.id] ?? 0) + 1;

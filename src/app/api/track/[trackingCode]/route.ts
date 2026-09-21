@@ -82,12 +82,14 @@ export async function GET(
 
   const pod = getProofOfDelivery(order.id);
   const rider = order.riderId ? getRiders().find((r) => r.id === order.riderId) : undefined;
+  // If the rider was hard-deleted, use the riderName snapshot stamped at delete-time.
+  const riderDisplayName = rider?.name ?? order.riderName ?? "";
 
   let etaText: string | null = null;
-  if (order.riderSeq && rider && order.status === "out-for-delivery") {
-    etaText = `Stop ${order.riderSeq} on rider ${rider.name}'s route`;
-  } else if (order.status === "preparing" && rider) {
-    etaText = `Rider ${rider.name} is en route to the shop`;
+  if (order.riderSeq && riderDisplayName && order.status === "out-for-delivery") {
+    etaText = `Stop ${order.riderSeq} on rider ${riderDisplayName}'s route`;
+  } else if (order.status === "preparing" && riderDisplayName) {
+    etaText = `Rider ${riderDisplayName} is en route to the shop`;
   } else if (order.status === "confirmed") {
     etaText = "Rider assignment is being prepared";
   }

@@ -98,7 +98,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
   const due = order.total - order.paid;
   const cancelled = order.status === "cancelled";
   const riderName =
-    order.riderId ? riders.find((r) => r.id === order.riderId)?.name ?? "" : "";
+    order.riderId ? riders.find((r) => r.id === order.riderId)?.name ?? order.riderName ?? "" : "";
 
   return (
     <>

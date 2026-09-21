@@ -1,8 +1,8 @@
 ﻿"use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { Plus, Bike, Banknote, TrendingUp, Truck, Edit3, ListOrdered } from "lucide-react";
+import { Plus, Bike, Banknote, TrendingUp, Truck, Edit3, ListOrdered, Trash2, AlertTriangle } from "lucide-react";
 import type { Rider, Order } from "@/lib/types";
 import { formatMoney, CLUSTER_LABELS, CLUSTER_SHORT, CLUSTER_COLORS, ALL_CLUSTERS } from "@/lib/ui";
 import { ExportMenu, type ExportColumn } from "@/components/export-menu";
@@ -22,6 +22,7 @@ export default function RidersPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [editRider, setEditRider] = useState<Rider | null>(null);
   const [ordersModalRider, setOrdersModalRider] = useState<Rider | null>(null);
+  const [deleteRider, setDeleteRider] = useState<Rider | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -233,6 +234,19 @@ export default function RidersPage() {
                     title="Edit rider"
                   >
                     <Edit3 size={12} /> Edit
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    style={{
+                      fontSize: 11,
+                      padding: "4px 8px",
+                      color: "var(--color-danger, #c4434b)",
+                      borderColor: "var(--color-danger, #c4434b)",
+                    }}
+                    onClick={() => setDeleteRider(r)}
+                    title="Delete rider (irreversible)"
+                  >
+                    <Trash2 size={12} /> Delete
                   </button>
                 </div>
               </div>
@@ -496,6 +510,14 @@ export default function RidersPage() {
           rider={ordersModalRider}
           orders={orders}
           onClose={() => setOrdersModalRider(null)}
+        />
+      )}
+      {deleteRider && (
+        <DeleteRiderModal
+          rider={deleteRider}
+          orders={orders}
+          onClose={() => setDeleteRider(null)}
+          onDeleted={load}
         />
       )}
     </div>
@@ -791,6 +813,263 @@ function EditRiderModal({
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
           <button className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
           <button className="btn btn-primary" onClick={submit} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Delete-rider confirmation modal.
+ *
+ * Two-step destructive:
+ *   1) If the rider still has active orders (not delivered/cancelled/returned),
+ *      the modal shows the count + a list of order links. Cancel is the only
+ *      way out — the operator must reassign or close them first.
+ *   2) If there are no active orders, the modal asks the operator to type
+ *      the rider's name to confirm. Submit is disabled until the typed
+ *      string matches (case-sensitive, trimmed).
+ *
+ * On a successful DELETE, the riderName snapshot is renewed on every order
+ * they own before the row goes away, so print, history, and the public
+ * /track page keep showing the real name.
+ */
+function DeleteRiderModal({
+  rider,
+  orders,
+  onClose,
+  onDeleted,
+}: {
+  rider: Rider;
+  orders: Order[];
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [confirmName, setConfirmName] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  // Active = anything not delivered, cancelled, or returned. The API uses
+  // the same definition, so this list mirrors what the server will return
+  // on a 409.
+  const activeOrders = useMemo(
+    () =>
+      orders
+        .filter(
+          (o) =>
+            o.riderId === rider.id &&
+            !["delivered", "cancelled", "returned"].includes(o.status)
+        )
+        .sort((a, b) => a.id - b.id),
+    [orders, rider.id]
+  );
+
+  // Counts for the summary block — these come straight from the orders
+  // already on the page (no extra roundtrip needed).
+  const historical = useMemo(
+    () => orders.filter((o) => o.riderId === rider.id),
+    [orders, rider.id]
+  );
+  const deliveredCount = historical.filter((o) => o.status === "delivered").length;
+
+  const matches = confirmName.trim() === rider.name;
+  const canSubmit = !submitting && matches && activeOrders.length === 0;
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/riders/${rider.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmedName: confirmName.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        setError(data.error || `Delete failed (HTTP ${res.status}).`);
+        setSubmitting(false);
+        return;
+      }
+      onDeleted();
+      onClose();
+    } catch (e) {
+      setError(String(e));
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 60 }}>
+      <div
+        className="modal-content"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: 460 }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            marginBottom: 12,
+          }}
+        >
+          <Trash2 size={22} color="var(--color-danger, #c4434b)" />
+          <h2 style={{ margin: 0, fontSize: 17 }}>Delete rider?</h2>
+        </div>
+
+        <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 12px" }}>
+          <strong>{rider.name}</strong>
+          {rider.phone ? ` · ${rider.phone}` : ""}
+          {rider.vehicle ? ` · ${rider.vehicle}` : ""}
+        </p>
+
+        {historical.length > 0 ? (
+          <div
+            style={{
+              padding: "8px 12px",
+              borderRadius: 6,
+              background: "var(--color-info-bg, rgba(56,132,255,0.08))",
+              color: "var(--text-primary)",
+              fontSize: 13,
+              marginBottom: 14,
+            }}
+          >
+            {deliveredCount} delivered · {historical.length - deliveredCount - activeOrders.length} other
+            closed. The name on every historic order stays intact.
+          </div>
+        ) : (
+          <div
+            style={{
+              padding: "8px 12px",
+              borderRadius: 6,
+              background: "var(--bg-card)",
+              color: "var(--text-muted)",
+              fontSize: 13,
+              marginBottom: 14,
+            }}
+          >
+            This rider has no orders. Nothing to archive.
+          </div>
+        )}
+
+        {activeOrders.length > 0 && (
+          <div
+            style={{
+              padding: "10px 12px",
+              borderRadius: 6,
+              border: "1px solid var(--color-danger, #c4434b)",
+              background: "rgba(196,67,75,0.08)",
+              marginBottom: 14,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontWeight: 600,
+                color: "var(--color-danger, #c4434b)",
+                marginBottom: 6,
+              }}
+            >
+              <AlertTriangle size={14} />
+              {activeOrders.length} active order{activeOrders.length === 1 ? "" : "s"} blocks the delete
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8 }}>
+              Reassign or close these orders first. Then come back and delete this rider.
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {activeOrders.slice(0, 12).map((o) => (
+                <Link
+                  key={o.id}
+                  href={`/orders/${o.id}`}
+                  style={{
+                    fontSize: 12,
+                    padding: "3px 8px",
+                    borderRadius: 4,
+                    background: "var(--bg-card)",
+                    border: "1px solid var(--color-border)",
+                    textDecoration: "none",
+                    color: "var(--color-text)",
+                  }}
+                >
+                  #{o.orderNo || o.id}
+                </Link>
+              ))}
+              {activeOrders.length > 12 && (
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  +{activeOrders.length - 12} more
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeOrders.length === 0 && (
+          <>
+            <label
+              style={{
+                display: "block",
+                fontSize: 12,
+                color: "var(--text-secondary)",
+                marginBottom: 4,
+              }}
+            >
+              Type <strong>{rider.name}</strong> to confirm:
+            </label>
+            <input
+              autoFocus
+              value={confirmName}
+              onChange={(e) => setConfirmName(e.target.value)}
+              placeholder={rider.name}
+              spellCheck={false}
+              autoComplete="off"
+              style={{
+                width: "100%",
+                padding: "8px 10px",
+                borderRadius: 6,
+                border: `1px solid ${
+                  confirmName.length === 0
+                    ? "var(--color-border)"
+                    : matches
+                    ? "var(--color-success, #4caf50)"
+                    : "var(--color-danger, #c4434b)"
+                }`,
+                background: "var(--color-bg-elevated)",
+                color: "var(--color-text)",
+                fontSize: 13,
+                fontFamily: "inherit",
+              }}
+            />
+          </>
+        )}
+
+        {error && (
+          <p style={{ color: "var(--color-danger, #c4434b)", fontSize: 13, margin: "12px 0 0" }}>
+            {error}
+          </p>
+        )}
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+          <button className="btn btn-secondary" onClick={onClose} disabled={submitting}>
+            Cancel
+          </button>
+          <button
+            className="btn"
+            disabled={!canSubmit}
+            onClick={submit}
+            style={{
+              background:
+                "var(--color-danger, #c4434b)",
+              color: "#fff",
+              border: "1px solid var(--color-danger, #c4434b)",
+              opacity: canSubmit ? 1 : 0.5,
+              cursor: canSubmit ? "pointer" : "not-allowed",
+            }}
+          >
+            {submitting ? "Deleting…" : "Delete rider"}
+          </button>
         </div>
       </div>
     </div>

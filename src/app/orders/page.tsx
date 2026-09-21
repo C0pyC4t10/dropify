@@ -826,7 +826,7 @@ function OrdersPageContent() {
                       <span style={{ color: "var(--accent-amber)", fontWeight: 600 }}>Pathao</span>
                     ) : o.riderId ? (
                       <span style={{ fontWeight: 600 }}>
-                        {riders.find((r) => r.id === o.riderId)?.name || `Rider #${o.riderId}`}
+                        {riders.find((r) => r.id === o.riderId)?.name || o.riderName || `Rider #${o.riderId}`}
                       </span>
                     ) : (
                       <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>Unassigned</span>

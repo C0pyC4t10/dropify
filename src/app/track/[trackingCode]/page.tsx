@@ -63,12 +63,16 @@ export default async function TrackPage({ params }: PageProps) {
 
   const pod = getProofOfDelivery(order.id);
   const rider = order.riderId ? getRiders().find((r) => r.id === order.riderId) : undefined;
+  // If the rider row was hard-deleted after the order was placed, fall back
+  // to the riderName snapshot stamped onto the order at delete-time. The
+  // public track page can still show the rider's name on delivered orders.
+  const riderDisplayName = rider?.name ?? order.riderName ?? "";
 
   let etaText: string | null = null;
-  if (order.riderSeq && rider && order.status === "out-for-delivery") {
-    etaText = `Stop ${order.riderSeq} on rider ${rider.name}'s route`;
-  } else if (order.status === "preparing" && rider) {
-    etaText = `Rider ${rider.name} is en route to the shop`;
+  if (order.riderSeq && riderDisplayName && order.status === "out-for-delivery") {
+    etaText = `Stop ${order.riderSeq} on rider ${riderDisplayName}'s route`;
+  } else if (order.status === "preparing" && riderDisplayName) {
+    etaText = `Rider ${riderDisplayName} is en route to the shop`;
   } else if (order.status === "confirmed") {
     etaText = "Rider assignment is being prepared";
   }
@@ -102,7 +106,7 @@ export default async function TrackPage({ params }: PageProps) {
   podPhotoPath: showPodPhoto ? `/api/track/${order.trackingCode}/pod-photo` : null,
     etaText,
     steps: buildSteps(order.status),
-    rider: rider ? { name: rider.name } : null,
+    rider: rider ? { name: rider.name } : order.riderName ? { name: order.riderName } : null,
   };
 
   return <TrackingView initial={initialPayload} />;

@@ -1068,7 +1068,7 @@ function PrintBatchPage() {
                           {o.deliveryMode === "pathao"
                             ? "Pathao"
                             : o.riderId
-                            ? riders.find((r) => r.id === o.riderId)?.name ?? `#${o.riderId}`
+? riders.find((r) => r.id === o.riderId)?.name ?? o.riderName ?? `#${o.riderId}`
                             : "Unassigned"}
                         </div>
                         {o.note && (
@@ -1873,7 +1873,7 @@ function ListViewTable({
     o.deliveryMode === "pathao"
       ? "Pathao"
       : o.riderId
-      ? riders.find((r) => r.id === o.riderId)?.name ?? `#${o.riderId}`
+      ? riders.find((r) => r.id === o.riderId)?.name ?? o.riderName ?? `#${o.riderId}`
       : "—";
 
   // Cash Collected = sum of `paid` for orders that actually have cash in hand
