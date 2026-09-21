@@ -153,7 +153,8 @@ export function CashView() {
     <div style={{ padding: 16 }}>
       {/* Lifetime summary — always visible, doesn't depend on the date range.
           Operator opens Finance and sees "this business has delivered X over
-          time" without having to set up a range. */}
+          time" without having to set up a range. Net revenue sits first so
+          it's the first thing the eye lands on. */}
       <div
         className="card"
         style={{
@@ -171,7 +172,7 @@ export function CashView() {
             textTransform: "uppercase",
             letterSpacing: 0.5,
             color: "var(--text-muted)",
-            marginBottom: 8,
+            marginBottom: 10,
           }}
         >
           <span style={{ color: "var(--color-brand, var(--accent-green))" }}>
@@ -179,6 +180,45 @@ export function CashView() {
           </span>
           All-time (since {lifetime && lifetime.firstDeliveredAt ? lifetime.firstDeliveredAt.slice(0, 10) : "—"})
         </div>
+        {/* Net revenue — full-width headline stat. The operator cares about
+            "is this business actually making money", so it gets its own row.
+            All other lifetime columns sit below as supporting context. */}
+        <div
+          style={{
+            padding: "10px 0 4px",
+            borderBottom: "1px solid var(--color-border, var(--border))",
+            marginBottom: 12,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              textTransform: "uppercase",
+              letterSpacing: 0.4,
+              color: "var(--text-muted)",
+              marginBottom: 4,
+            }}
+          >
+            Net revenue
+          </div>
+          <div
+            style={{
+              fontSize: 32,
+              fontWeight: 800,
+              lineHeight: 1.05,
+              fontVariantNumeric: "tabular-nums",
+              color:
+                (lifetime?.net ?? 0) >= 0 ? "var(--accent-green)" : "var(--accent-red)",
+              letterSpacing: -0.5,
+            }}
+          >
+            {lifetime && lifetime.net != null ? formatMoney(lifetime.net) : "—"}
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+            Revenue − rider payouts − expenses, all-time.
+          </div>
+        </div>
+
         <div
           style={{
             display: "grid",
@@ -205,13 +245,6 @@ export function CashView() {
             label="Expenses"
             value={lifetime?.expenses ?? null}
             accent="var(--text-secondary)"
-          />
-          <LifetimeStat
-            label="Net"
-            value={lifetime?.net ?? null}
-            accent={
-              (lifetime?.net ?? 0) >= 0 ? "var(--accent-green)" : "var(--accent-red)"
-            }
           />
         </div>
       </div>
@@ -290,6 +323,14 @@ export function CashView() {
         }}
       >
         <HeroStat
+          icon={<Coins size={18} />}
+          label="Net revenue"
+          value={data?.total.net ?? null}
+          accent={
+            (data?.total.net ?? 0) >= 0 ? "var(--accent-green)" : "var(--accent-red)"
+          }
+        />
+        <HeroStat
           icon={<TrendingUp size={18} />}
           label="Revenue"
           value={data?.total.revenue ?? null}
@@ -306,14 +347,6 @@ export function CashView() {
           label="Expenses"
           value={data?.total.expenses ?? null}
           accent="var(--accent-blue)"
-        />
-        <HeroStat
-          icon={<Coins size={18} />}
-          label="Net"
-          value={data?.total.net ?? null}
-          accent={
-            (data?.total.net ?? 0) >= 0 ? "var(--accent-green)" : "var(--accent-red)"
-          }
         />
       </div>
 

@@ -240,10 +240,20 @@ export const EXPENSE_PAYMENT_METHOD_LABELS: Record<string, string> = {
 };
 
 export function formatMoney(n: number): ReactNode {
+  const value = Number(n || 0);
+  if (value < 0) {
+    return (
+      <Fragment>
+        <span style={{ marginRight: 1 }}>−</span>
+        <span className="taka">৳</span>
+        {Math.abs(value).toLocaleString("en-IN")}
+      </Fragment>
+    );
+  }
   return (
     <Fragment>
       <span className="taka">৳</span>
-      {Number(n || 0).toLocaleString("en-IN")}
+      {value.toLocaleString("en-IN")}
     </Fragment>
   );
 }
