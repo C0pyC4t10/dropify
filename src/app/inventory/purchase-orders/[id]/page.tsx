@@ -73,7 +73,7 @@ export default function PurchaseOrderDetail() {
     <div>
       <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <Link href="/purchase-orders" className="btn btn-secondary"><ArrowLeft size={15} /></Link>
+          <Link href="/inventory?tab=purchase-orders" className="btn btn-secondary"><ArrowLeft size={15} /></Link>
           <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>
             {po.poNumber} <span className={`status-badge ${statusBadgeClass}`}>{STATUS_LABELS[po.status]}</span>
           </h1>

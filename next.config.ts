@@ -25,6 +25,28 @@ const LOGISTICS_REDIRECTS = [
   },
 ];
 
+const INVENTORY_REDIRECTS = [
+  // Stock, Purchase Orders, Suppliers → /inventory. The three pages share
+  // one tabbed shell, default = Stock.
+  { source: "/stock", destination: "/inventory", permanent: true },
+  { source: "/stock/new", destination: "/inventory/stock-new", permanent: true },
+  {
+    source: "/purchase-orders",
+    destination: "/inventory?tab=purchase-orders",
+    permanent: true,
+  },
+  {
+    source: "/purchase-orders/:id",
+    destination: "/inventory/purchase-orders/:id",
+    permanent: true,
+  },
+  {
+    source: "/suppliers",
+    destination: "/inventory?tab=suppliers",
+    permanent: true,
+  },
+];
+
 const nextConfig: NextConfig = {
   serverExternalPackages: [
     "@tailwindcss/oxide",
@@ -37,7 +59,7 @@ const nextConfig: NextConfig = {
     },
   },
   allowedDevOrigins: ["192.168.68.58", "localhost", "127.0.0.1"],
-  redirects: () => LOGISTICS_REDIRECTS,
+  redirects: () => [...LOGISTICS_REDIRECTS, ...INVENTORY_REDIRECTS],
 };
 
 export default nextConfig;

@@ -7,7 +7,14 @@ import type { Product, Category, Unit, StockMovement } from "@/lib/types";
 import { formatMoney, formatDateTime } from "@/lib/ui";
 import { ExportMenu, type ExportColumn } from "@/components/export-menu";
 
+// Live under /inventory (default tab). The file is named `stock-view.tsx`
+// instead of `page.tsx` so it can be imported as a non-route module by the
+// Inventory shell — Next.js won't try to register it as a route.
 export default function StockPage() {
+  return <StockView />;
+}
+
+export function StockView() {
   const [products, setProducts] = useState<Product[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -138,7 +145,7 @@ export default function StockPage() {
             label="Export Products"
           />
           <button className="btn btn-secondary" onClick={() => setShowMovements(true)}>Movements</button>
-          <Link href="/stock/new" className="btn btn-primary" style={{ textDecoration: "none" }}>
+          <Link href="/inventory/stock-new" className="btn btn-primary" style={{ textDecoration: "none" }}>
             <Plus size={15} /> Add Product
           </Link>
         </div>

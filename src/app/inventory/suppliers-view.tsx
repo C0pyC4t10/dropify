@@ -5,7 +5,12 @@ import { Plus, Phone, Truck, Edit3 } from "lucide-react";
 import type { Category, Supplier } from "@/lib/types";
 import { ExportMenu, type ExportColumn } from "@/components/export-menu";
 
+// Live under /inventory?tab=suppliers.
 export default function SuppliersPage() {
+  return <SuppliersView />;
+}
+
+export function SuppliersView() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [edit, setEdit] = useState<Supplier | null>(null);

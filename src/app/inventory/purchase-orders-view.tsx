@@ -17,7 +17,12 @@ const STATUS_LABELS: Record<PurchaseOrderStatus, string> = {
 
 const FILTERS: Array<PurchaseOrderStatus | "all"> = ["all", "draft", "sent", "received", "cancelled"];
 
+// Live under /inventory?tab=purchase-orders.
 export default function PurchaseOrdersPage() {
+  return <PurchaseOrdersView />;
+}
+
+export function PurchaseOrdersView() {
   const [pos, setPos] = useState<PurchaseOrder[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -131,9 +136,9 @@ export default function PurchaseOrdersPage() {
               {filtered.map((p) => {
                 const sup = supplierById(p.supplierId);
                 return (
-                  <tr key={p.id} onClick={() => (window.location.href = `/purchase-orders/${p.id}`)} style={{ cursor: "pointer" }}>
+                  <tr key={p.id} onClick={() => (window.location.href = `/inventory/purchase-orders/${p.id}`)} style={{ cursor: "pointer" }}>
                     <td style={{ color: "var(--accent-amber)", fontWeight: 600 }}>
-                      <Link href={`/purchase-orders/${p.id}`} style={{ color: "inherit", textDecoration: "none" }}>{p.poNumber}</Link>
+                      <Link href={`/inventory/purchase-orders/${p.id}`} style={{ color: "inherit", textDecoration: "none" }}>{p.poNumber}</Link>
                     </td>
                     <td style={{ color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{p.date}</td>
                     <td>{sup?.name || `Supplier #${p.supplierId}`}</td>

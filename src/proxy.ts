@@ -11,18 +11,18 @@ import { NextResponse, type NextRequest } from "next/server";
  * operator/admin pages — a real customer-data leak.
  *
  * This middleware detects a rider session and:
- *   - For HTML pages under /admin, /orders, /logistics, /customers, /expenses,
- *     /suppliers, /purchase-orders, /stock, /settings → redirects
- *     to /rider (the rider PWA's own order list).
+ *   - For HTML pages under /admin, /orders, /logistics, /inventory,
+ *     /customers, /expenses, /suppliers, /purchase-orders, /stock,
+ *     /settings → redirects to /rider (the rider PWA's own order list).
  *   - For /api/admin/* and /api/orders/*, /api/riders/*, /api/customers,
  *     etc. → returns 403 (server is the source of truth).
  *   - Allows /rider/*, /api/rider/*, /track/*, /api/track/*, and everything
  *     else (the operator/admin flow does NOT set rider_refresh_token).
  *
- * Legacy /riders + /routes URLs also get blocked here because the prefix
- * check catches them and bounces them to /rider, which is reasonable on a
- * rider phone (the operator never navigates to those paths). The redirect
- * target /logistics is what blocks the rider explicitly.
+ * Legacy /riders, /routes, /stock, /purchase-orders, /suppliers URLs also
+ * get blocked here because the prefix check catches them and bounces them
+ * to /rider, which is reasonable on a rider phone. The new top-level
+ * shells (/logistics, /inventory) are the explicit blockers.
  *
  * Cookies used:
  *   - rider_refresh_token — httpOnly cookie set by /api/rider/login + refresh.
@@ -49,12 +49,13 @@ const RIDER_BLOCKED_PAGE_PREFIXES = [
   "/orders",
   "/riders",          // legacy /riders + /riders/[id]/... URLs
   "/logistics",       // new unified Logistics shell (Riders tab + Routes tab)
+  "/inventory",       // new unified Inventory shell (Stock + POs + Suppliers)
   "/customers",
   "/expenses",
   "/routes",          // legacy /routes + /routes/[riderId]/... URLs
-  "/suppliers",
-  "/purchase-orders",
-  "/stock",
+  "/suppliers",       // legacy /suppliers URL
+  "/purchase-orders", // legacy /purchase-orders + /purchase-orders/[id]
+  "/stock",           // legacy /stock + /stock/new
   "/settings",
   "/design-system",
   "/api/admin",

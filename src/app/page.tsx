@@ -328,7 +328,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <Link href="/stock" className="card" style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", textDecoration: "none" }}>
+          <Link href="/inventory" className="card" style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", textDecoration: "none" }}>
             <Package size={20} color="var(--accent-green)" />
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>Manage Stock</div>

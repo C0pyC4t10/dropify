@@ -87,7 +87,7 @@ export function PurchaseOrderForm({ products, suppliers, defaultSupplierId, onCl
       if (!res.ok) throw new Error((await res.json()).error);
       const created = await res.json();
       onSaved();
-      window.open(`/purchase-orders/${created.id}?print=1`, "_blank");
+      window.open(`/inventory/purchase-orders/${created.id}?print=1`, "_blank");
       onClose();
     } catch (e) {
       setError(String(e));

@@ -156,7 +156,7 @@ export default function NewProductPage() {
               gap: 6,
             }}
           >
-            <Link href="/stock" style={{ color: "var(--text-muted)", textDecoration: "none" }}>
+            <Link href="/inventory" style={{ color: "var(--text-muted)", textDecoration: "none" }}>
               Stock
             </Link>
             <span>/</span>
@@ -168,7 +168,7 @@ export default function NewProductPage() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <Link href="/stock" className="btn btn-secondary">
+          <Link href="/inventory" className="btn btn-secondary">
             <ArrowLeft size={15} /> Back
           </Link>
           <button className="btn btn-primary" onClick={submit} disabled={saving}>
@@ -456,7 +456,7 @@ export default function NewProductPage() {
             <Save size={15} /> {saving ? "Saving..." : "Save Product"}
           </button>
           <Link
-            href="/stock"
+            href="/inventory"
             className="btn btn-secondary"
             style={{ width: "100%", marginTop: 8, justifyContent: "center", textDecoration: "none" }}
           >
