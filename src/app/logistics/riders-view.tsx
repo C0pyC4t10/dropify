@@ -16,7 +16,14 @@ interface RiderStats {
   totalRiderCost: number;  // total payout to this rider for delivered orders
 }
 
+// Live under /logistics?tab=riders. The file is named `riders-view.tsx`
+// instead of `page.tsx` so it can be imported as a non-route module by the
+// Logistics shell — Next.js won't try to register it as a route.
 export default function RidersPage() {
+  return <RidersView />;
+}
+
+export function RidersView() {
   const [riders, setRiders] = useState<Rider[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [showAdd, setShowAdd] = useState(false);
@@ -168,7 +175,7 @@ export default function RidersPage() {
       </div>
 
       {/* Own riders first */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: 12, marginBottom: 16 }}>
         {riders.length === 0 && (
           <p style={{ color: "var(--text-muted)", fontSize: 14 }}>No riders yet. Add your first rider.</p>
         )}
@@ -176,8 +183,16 @@ export default function RidersPage() {
           const s = statsFor(r.id);
           return (
             <div key={r.id} className="card" style={{ padding: 16 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 12,
+                  marginBottom: 10,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                   <div
                     style={{
                       width: 36,
@@ -186,69 +201,98 @@ export default function RidersPage() {
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
+                      flexShrink: 0,
                       background: "rgba(59,130,246,0.15)",
                       color: "var(--accent-blue)",
                     }}
                   >
                     <Bike size={18} />
                   </div>
-                  <div>
+                  <div style={{ minWidth: 0 }}>
                     <Link
                       href={`/riders/${r.id}`}
-                      style={{ fontWeight: 600, fontSize: 14, color: "var(--text-primary)", textDecoration: "none" }}
+                      style={{
+                        fontWeight: 600,
+                        fontSize: 14,
+                        color: "var(--text-primary)",
+                        textDecoration: "none",
+                        display: "block",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
                       title="Open rider detail page"
                     >
                       {r.name}
                     </Link>
-                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{r.vehicle}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                      {r.vehicle}
+                    </div>
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <select
-                    value={r.status}
-                    onChange={async (e) => {
-                      await fetch(`/api/riders/${r.id}`, {
-                        method: "PUT",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ status: e.target.value }),
-                      });
-                      load();
-                    }}
-                    style={{ width: "auto", fontSize: 12, padding: "4px 8px" }}
-                  >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
-                  <button
-                    className="btn btn-primary"
-                    style={{ fontSize: 11, padding: "4px 8px" }}
-                    onClick={() => setOrdersModalRider(r)}
-                    title="Quick view of this rider's orders"
-                  >
-                    <ListOrdered size={12} /> View Orders
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    style={{ fontSize: 11, padding: "4px 8px" }}
-                    onClick={() => setEditRider(r)}
-                    title="Edit rider"
-                  >
-                    <Edit3 size={12} /> Edit
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    style={{
-                      fontSize: 11,
-                      padding: "4px 8px",
-                      color: "var(--color-danger, #c4434b)",
-                      borderColor: "var(--color-danger, #c4434b)",
-                    }}
-                    onClick={() => setDeleteRider(r)}
-                    title="Delete rider (irreversible)"
-                  >
-                    <Trash2 size={12} /> Delete
-                  </button>
-                </div>
+              </div>
+              {/* Actions: allow wrapping so Delete is never clipped at narrow widths.
+                  Full-width row of buttons below the title — clean on phones,
+                  fills the gap on cards too narrow for the avatar+button row. */}
+              <div
+                style={{
+                  display: "flex",
+                  gap: 6,
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  marginBottom: 6,
+                }}
+              >
+                <select
+                  value={r.status}
+                  onChange={async (e) => {
+                    await fetch(`/api/riders/${r.id}`, {
+                      method: "PUT",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ status: e.target.value }),
+                    });
+                    load();
+                  }}
+                  style={{
+                    width: "auto",
+                    fontSize: 12,
+                    padding: "4px 8px",
+                    marginLeft: "auto",
+                    flexShrink: 0,
+                  }}
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+                <button
+                  className="btn btn-primary"
+                  style={{ fontSize: 11, padding: "4px 8px" }}
+                  onClick={() => setOrdersModalRider(r)}
+                  title="Quick view of this rider's orders"
+                >
+                  <ListOrdered size={12} /> View Orders
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  style={{ fontSize: 11, padding: "4px 8px" }}
+                  onClick={() => setEditRider(r)}
+                  title="Edit rider"
+                >
+                  <Edit3 size={12} /> Edit
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  style={{
+                    fontSize: 11,
+                    padding: "4px 8px",
+                    color: "var(--color-danger, #c4434b)",
+                    borderColor: "var(--color-danger, #c4434b)",
+                  }}
+                  onClick={() => setDeleteRider(r)}
+                  title="Delete rider (irreversible)"
+                >
+                  <Trash2 size={12} /> Delete
+                </button>
               </div>
 
               <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 10 }}>{r.phone}</div>

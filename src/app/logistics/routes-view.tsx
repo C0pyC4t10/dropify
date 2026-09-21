@@ -85,7 +85,14 @@ function distanceLabel(m: number): string {
   return `${(m / 1000).toFixed(m < 10000 ? 2 : 1)} km`;
 }
 
+// Live under /logistics (default tab). The file is named `routes-view.tsx`
+// instead of `page.tsx` so it can be imported as a non-route module by the
+// Logistics shell — Next.js won't try to register it as a route.
 export default function RoutesLandingPage() {
+  return <RoutesView />;
+}
+
+export function RoutesView() {
   const [date, setDate] = useState<string>(bdToday());
   const [ridersWithPlans, setRidersWithPlans] = useState<RidersWithPlansResponse["riders"]>([]);
   const [allRiders, setAllRiders] = useState<Rider[]>([]);

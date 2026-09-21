@@ -1068,7 +1068,7 @@ function OrdersPageContent() {
                 setShowPlanRoutePicker(false);
                 const date = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString().slice(0, 10);
                 const ids = Array.from(selectedIds).join(",");
-                router.push(`/routes/preview?date=${date}&selectedIds=${ids}`);
+                router.push(`/logistics/preview?date=${date}&selectedIds=${ids}`);
               }}
               style={{
                 display: "flex",
@@ -1116,7 +1116,7 @@ function OrdersPageContent() {
             <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 280, overflowY: "auto" }}>
               {riders.length === 0 ? (
                 <div style={{ color: "var(--text-secondary)", fontSize: 13, padding: 12, textAlign: "center" }}>
-                  No riders yet. Add riders in the Riders page.
+                  No riders yet. Add them on Logistics → Riders tab.
                 </div>
               ) : (
                 riders.map((r) => (
@@ -1126,7 +1126,7 @@ function OrdersPageContent() {
                       setShowPlanRoutePicker(false);
                       const date = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString().slice(0, 10);
                       const ids = Array.from(selectedIds).join(",");
-                      router.push(`/routes/${r.id}?date=${date}&selectedIds=${ids}`);
+                      router.push(`/logistics/${r.id}?date=${date}&selectedIds=${ids}`);
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.background = "var(--tint-brand-18)";

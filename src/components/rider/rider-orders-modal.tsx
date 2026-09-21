@@ -130,7 +130,7 @@ export function RiderOrdersModal({ rider, orders, onClose }: Props) {
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14 }}>
           <Link
-            href={`/riders/${rider.id}`}
+            href={`/logistics/riders/${rider.id}`}
             className="btn btn-secondary"
             style={{ textDecoration: "none" }}
           >

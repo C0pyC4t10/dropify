@@ -6,18 +6,23 @@ import { NextResponse, type NextRequest } from "next/server";
  * The rider PWA (Phase 5) issues an httpOnly `rider_refresh_token` cookie
  * on login. Middleware can read it; a logged-in rider's browser sends it
  * on every navigation. Before this middleware existed, a rider who logged
- * into /rider and then typed /orders/[id] or /riders or /admin/dispatch into
- * the address bar would see the unrestricted operator/admin pages — a real
- * customer-data leak.
+ * into /rider and then typed /orders/[id] or /logistics/riders/[id] or
+ * /admin/dispatch into the address bar would see the unrestricted
+ * operator/admin pages — a real customer-data leak.
  *
  * This middleware detects a rider session and:
- *   - For HTML pages under /admin, /orders, /riders, /customers, /expenses,
- *     /routes, /suppliers, /purchase-orders, /stock, /settings → redirects
+ *   - For HTML pages under /admin, /orders, /logistics, /customers, /expenses,
+ *     /suppliers, /purchase-orders, /stock, /settings → redirects
  *     to /rider (the rider PWA's own order list).
  *   - For /api/admin/* and /api/orders/*, /api/riders/*, /api/customers,
  *     etc. → returns 403 (server is the source of truth).
  *   - Allows /rider/*, /api/rider/*, /track/*, /api/track/*, and everything
  *     else (the operator/admin flow does NOT set rider_refresh_token).
+ *
+ * Legacy /riders + /routes URLs also get blocked here because the prefix
+ * check catches them and bounces them to /rider, which is reasonable on a
+ * rider phone (the operator never navigates to those paths). The redirect
+ * target /logistics is what blocks the rider explicitly.
  *
  * Cookies used:
  *   - rider_refresh_token — httpOnly cookie set by /api/rider/login + refresh.
@@ -42,10 +47,11 @@ const RIDER_ALLOWED_PAGE_PREFIXES = [
 const RIDER_BLOCKED_PAGE_PREFIXES = [
   "/admin",
   "/orders",
-  "/riders",
+  "/riders",          // legacy /riders + /riders/[id]/... URLs
+  "/logistics",       // new unified Logistics shell (Riders tab + Routes tab)
   "/customers",
   "/expenses",
-  "/routes",
+  "/routes",          // legacy /routes + /routes/[riderId]/... URLs
   "/suppliers",
   "/purchase-orders",
   "/stock",
