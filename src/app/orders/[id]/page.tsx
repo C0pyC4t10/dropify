@@ -263,7 +263,7 @@ function OrderDetailInner() {
               {otpMsg}
             </span>
           )}
-          {adminMode && (order.status === "preparing" || order.status === "out-for-delivery") && (
+          {adminMode && ["confirmed", "preparing", "out-for-delivery"].includes(order.status) && (
             <button
               className="btn btn-secondary"
               onClick={sendOtp}

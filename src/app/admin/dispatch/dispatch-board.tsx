@@ -490,12 +490,13 @@ function OrderCard({
           Open
         </Link>
 
-        {/* Send OTP — visible whenever the order is in a state that expects a
-            verification code to be sent (preparing or out-for-delivery). The
-            button is enabled even when an active OTP exists, so dispatchers
-            can resend on customer request. Tap target is ≥44px tall for
-            phone-friendly touch. */}
-        {(order.status === "preparing" || order.status === "out-for-delivery") && (
+        {/* Send OTP — visible whenever the order hasn't reached a terminal
+            state yet (confirmed / preparing / out-for-delivery), so
+            dispatchers can pre-send the code while the rider is still
+            acknowledging pickup. The button is enabled even when an
+            active OTP exists, so dispatchers can resend on customer
+            request. Tap target is ≥44px tall for phone-friendly touch. */}
+        {["confirmed", "preparing", "out-for-delivery"].includes(order.status) && (
           <button
             onClick={onSendOtp}
             disabled={isActing}
