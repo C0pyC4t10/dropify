@@ -1,8 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { MapPin, Navigation, AlertTriangle, CheckCircle2, Eye, Hand } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Navigation, AlertTriangle, CheckCircle2, Eye, Hand, Search, X } from "lucide-react";
 
 export interface RiderOrderMapProps {
   pin: { lat: number; lng: number };
@@ -53,12 +53,33 @@ export function RiderOrderMap(props: RiderOrderMapProps) {
   const [distance, setDistance] = useState<number | null>(null);
   const [locating, setLocating] = useState(false);
 
+  // Address search state. The rider can search Nominatim (OpenStreetMap)
+  // for the actual spot — useful when the customer's typed address
+  // geocoded to the wrong place.
+  const [searchQ, setSearchQ] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [results, setResults] = useState<Array<{ displayName: string; lat: number; lng: number; type: string | null; importance: number }>>([]);
+  const [resultsOpen, setResultsOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Reset the live pin if the server hands us a new order.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLivePin(props.pin);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.pin.lat, props.pin.lng]);
+
+  // Seed the search box with the stored address on first mount / order
+  // change so the rider can pick from Nominatim hits without retyping.
+  useEffect(() => {
+    if (searchQ === "" && props.address) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSearchQ(props.address);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.address]);
 
   const refreshGps = useCallback(() => {
     if (typeof navigator === "undefined" || !("geolocation" in navigator)) return;
@@ -81,6 +102,47 @@ export function RiderOrderMap(props: RiderOrderMapProps) {
     refreshGps();
   }, [refreshGps]);
 
+  // Debounced Nominatim search — fires 350 ms after the rider stops
+  // typing. Cancels any in-flight request when the input changes.
+  useEffect(() => {
+    const q = searchQ.trim();
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (q.length < 3) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setResults([]);
+      setSearchError(null);
+      setSearching(false);
+      return;
+    }
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      setSearchError(null);
+      try {
+        const params = new URLSearchParams({ q, limit: "5" });
+        if (riderPos) {
+          params.set("near", `${riderPos.lat},${riderPos.lng}`);
+        }
+        const res = await fetch(`/api/geocode/search?${params.toString()}`);
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json.ok) {
+          setSearchError(json.error || `Search failed (${res.status})`);
+          setResults([]);
+        } else {
+          setResults(json.results as Array<{ displayName: string; lat: number; lng: number; type: string | null; importance: number }>);
+          setResultsOpen(true);
+        }
+      } catch (err) {
+        setSearchError(err instanceof Error ? err.message : "network error");
+        setResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 350);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [searchQ, riderPos]);
+
   useEffect(() => {
     if (!riderPos) return;
     const dLat = (livePin.lat - riderPos.lat) * Math.PI / 180;
@@ -97,6 +159,12 @@ export function RiderOrderMap(props: RiderOrderMapProps) {
 
   const farWarning = distance != null && distance > 250;
   const pinMoved = livePin.lat !== props.pin.lat || livePin.lng !== props.pin.lng;
+
+  function pickResult(r: { lat: number; lng: number; displayName: string }) {
+    setLivePin({ lat: r.lat, lng: r.lng });
+    setResultsOpen(false);
+    setSearchQ(r.displayName.split(",")[0]); // keep the name in the input
+  }
 
   const navigateUrl = useMemo(
     () => `https://www.google.com/maps/dir/?api=1&destination=${livePin.lat},${livePin.lng}`,
@@ -159,7 +227,7 @@ export function RiderOrderMap(props: RiderOrderMapProps) {
             color: "var(--color-info)",
             border: "1px solid var(--tint-info-12)",
             fontSize: 12,
-            fontWeight: 600,
+            fontWeight: 700,
             display: "flex",
             alignItems: "center",
             gap: 6,
@@ -169,6 +237,132 @@ export function RiderOrderMap(props: RiderOrderMapProps) {
           Pin moved to your selection. Navigate will use this point.
         </div>
       )}
+
+      {/* Address search — Nominatim-powered autocomplete. Defaults to the
+          stored address so the rider can pick "the right one" without
+          retyping the whole thing. */}
+      <div style={{ position: "relative" }}>
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "10px 12px",
+          borderRadius: 10,
+          background: "var(--bg-elevated)",
+          border: "1px solid var(--color-border)",
+        }}>
+          <Search size={16} aria-hidden style={{ color: "var(--color-text-muted)", flexShrink: 0 }} />
+          <input
+            ref={searchInputRef}
+            type="search"
+            inputMode="search"
+            value={searchQ}
+            placeholder="Search for the right spot (street, building, landmark…)"
+            onChange={(e) => setSearchQ(e.target.value)}
+            onFocus={() => { if (results.length > 0) setResultsOpen(true); }}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              border: "none",
+              outline: "none",
+              background: "transparent",
+              color: "var(--color-text)",
+              fontSize: 14,
+              padding: 0,
+              fontFamily: "inherit",
+            }}
+            aria-label="Search for exact location"
+          />
+          {searching && (
+            <span style={{ fontSize: 11, color: "var(--color-text-muted)" }}>…</span>
+          )}
+          {searchQ && !searching && (
+            <button
+              type="button"
+              onClick={() => { setSearchQ(""); setResults([]); setResultsOpen(false); }}
+              aria-label="Clear search"
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "var(--color-text-muted)",
+                cursor: "pointer",
+                padding: 0,
+                display: "inline-flex",
+              }}
+            >
+              <X size={16} aria-hidden />
+            </button>
+          )}
+        </div>
+
+        {resultsOpen && results.length > 0 && (
+          <ul
+            role="listbox"
+            style={{
+              position: "absolute",
+              top: "calc(100% + 4px)",
+              left: 0,
+              right: 0,
+              zIndex: 1000,
+              maxHeight: 240,
+              overflowY: "auto",
+              listStyle: "none",
+              padding: 4,
+              margin: 0,
+              background: "var(--bg-elevated)",
+              border: "1px solid var(--color-border)",
+              borderRadius: 10,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+            }}
+          >
+            {results.map((r, i) => (
+              <li key={`${r.lat}-${r.lng}-${i}`}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected="false"
+                  onClick={() => pickResult(r)}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    textAlign: "left",
+                    padding: "10px 12px",
+                    background: "transparent",
+                    border: "none",
+                    borderRadius: 6,
+                    cursor: "pointer",
+                    color: "var(--color-text)",
+                    fontSize: 13,
+                    lineHeight: 1.4,
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background = "var(--color-bg-hover)";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+                  }}
+                >
+                  <div style={{ fontWeight: 600 }}>
+                    {r.displayName.split(",").slice(0, 1)[0]}
+                    {r.type && (
+                      <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 400, color: "var(--color-text-muted)" }}>
+                        {r.type}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--color-text-muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {r.displayName.split(",").slice(1).join(",").trim()}
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {searchError && (
+          <div style={{ fontSize: 12, color: "var(--color-danger)", marginTop: 6 }}>{searchError}</div>
+        )}
+      </div>
+
       <div style={{ position: "relative" }}>
         <MapDynamic
           {...props}
