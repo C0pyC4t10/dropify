@@ -53,7 +53,13 @@ function categoryColor(c: string): string {
   return EXPENSE_CATEGORY_COLORS[c] || "var(--text-muted)";
 }
 
+// Live under /finance (default tab). File is named `expenses-view.tsx` so
+// it can be imported as a non-route module by the Finance shell.
 export default function ExpensesPage() {
+  return <ExpensesView />;
+}
+
+export function ExpensesView() {
   const [rows, setRows] = useState<Expense[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);

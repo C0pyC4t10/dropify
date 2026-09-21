@@ -43,15 +43,16 @@ export default function Dashboard() {
     return <div style={{ textAlign: "center", padding: "60px 0", color: "var(--text-muted)" }}>Loading...</div>;
   }
 
-  const cards = [
-    { label: "Today's Orders", value: String(stats.today.orders), icon: ClipboardList, color: "var(--accent-blue)" },
-    { label: "Today's Revenue", value: formatMoney(stats.today.revenue), icon: Banknote, color: "var(--accent-green)" },
-    { label: "Today's Expenses", value: formatMoney(stats.today.expenses), icon: Wallet, color: "var(--accent-amber)" },
+  const cards: Array<{ label: string; value: React.ReactNode; icon: typeof ClipboardList; color: string; href?: string }> = [
+    { label: "Today's Orders", value: String(stats.today.orders), icon: ClipboardList, color: "var(--accent-blue)", href: "/orders" },
+    { label: "Today's Revenue", value: formatMoney(stats.today.revenue), icon: Banknote, color: "var(--accent-green)", href: "/finance?tab=cash" },
+    { label: "Today's Expenses", value: formatMoney(stats.today.expenses), icon: Wallet, color: "var(--accent-amber)", href: "/finance" },
     {
       label: "Today's Net",
       value: formatMoney(stats.today.net),
       icon: TrendingUp,
       color: stats.today.net >= 0 ? "var(--accent-green)" : "var(--accent-red)",
+      href: "/finance?tab=cash",
     },
     { label: "Delivered Today", value: String(stats.today.delivered), icon: CheckCircle2, color: "var(--accent-green)" },
     { label: "Pending Today", value: String(stats.today.pending), icon: Clock, color: "var(--accent-amber)" },
@@ -62,7 +63,7 @@ export default function Dashboard() {
       color: stats.newOrders.length > 0 ? "var(--accent-red)" : "var(--accent-green)",
     },
     { label: "Active Riders", value: String(stats.activeRiders.length), icon: Bike, color: "var(--accent-blue)" },
-    { label: "Month Revenue", value: formatMoney(stats.monthlyRevenue), icon: Banknote, color: "var(--accent-green)" },
+    { label: "Month Revenue", value: formatMoney(stats.monthlyRevenue), icon: Banknote, color: "var(--accent-green)", href: "/finance?tab=cash" },
   ];
 
   return (
@@ -88,15 +89,29 @@ export default function Dashboard() {
           marginBottom: 20,
         }}
       >
-        {cards.map((c) => (
-          <div key={c.label} className="stat-card">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <span style={{ fontSize: 12, color: "var(--text-secondary)", fontWeight: 500 }}>{c.label}</span>
-              <c.icon size={18} color={c.color} />
+        {cards.map((c) => {
+          const inner = (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontSize: 12, color: "var(--text-secondary)", fontWeight: 500 }}>{c.label}</span>
+                <c.icon size={18} color={c.color} />
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{c.value}</div>
+            </>
+          );
+          if (c.href) {
+            return (
+              <Link key={c.label} href={c.href} className="stat-card" style={{ textDecoration: "none", color: "inherit", display: "block" }}>
+                {inner}
+              </Link>
+            );
+          }
+          return (
+            <div key={c.label} className="stat-card">
+              {inner}
             </div>
-            <div style={{ fontSize: 22, fontWeight: 700 }}>{c.value}</div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div

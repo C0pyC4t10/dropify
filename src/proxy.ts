@@ -11,7 +11,7 @@ import { NextResponse, type NextRequest } from "next/server";
  * operator/admin pages — a real customer-data leak.
  *
  * This middleware detects a rider session and:
- *   - For HTML pages under /admin, /orders, /logistics, /inventory,
+ *   - For HTML pages under /admin, /orders, /logistics, /inventory, /finance,
  *     /customers, /expenses, /suppliers, /purchase-orders, /stock,
  *     /settings → redirects to /rider (the rider PWA's own order list).
  *   - For /api/admin/* and /api/orders/*, /api/riders/*, /api/customers,
@@ -50,8 +50,9 @@ const RIDER_BLOCKED_PAGE_PREFIXES = [
   "/riders",          // legacy /riders + /riders/[id]/... URLs
   "/logistics",       // new unified Logistics shell (Riders tab + Routes tab)
   "/inventory",       // new unified Inventory shell (Stock + POs + Suppliers)
+  "/finance",         // new unified Finance shell (Expenses + Cash / P&L)
   "/customers",
-  "/expenses",
+  "/expenses",        // legacy /expenses URL
   "/routes",          // legacy /routes + /routes/[riderId]/... URLs
   "/suppliers",       // legacy /suppliers URL
   "/purchase-orders", // legacy /purchase-orders + /purchase-orders/[id]

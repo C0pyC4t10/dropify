@@ -25,6 +25,11 @@ const LOGISTICS_REDIRECTS = [
   },
 ];
 
+const FINANCE_REDIRECTS = [
+  // Expenses → /finance. Old /expenses moved under Finance (Expenses tab).
+  { source: "/expenses", destination: "/finance", permanent: true },
+];
+
 const INVENTORY_REDIRECTS = [
   // Stock, Purchase Orders, Suppliers → /inventory. The three pages share
   // one tabbed shell, default = Stock.
@@ -59,7 +64,11 @@ const nextConfig: NextConfig = {
     },
   },
   allowedDevOrigins: ["192.168.68.58", "localhost", "127.0.0.1"],
-  redirects: () => [...LOGISTICS_REDIRECTS, ...INVENTORY_REDIRECTS],
+  redirects: () => [
+    ...LOGISTICS_REDIRECTS,
+    ...INVENTORY_REDIRECTS,
+    ...FINANCE_REDIRECTS,
+  ],
 };
 
 export default nextConfig;

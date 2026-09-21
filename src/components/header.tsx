@@ -131,7 +131,7 @@ const NAV = [
   { href: "/orders", label: "Orders", icon: ClipboardList },
   { href: "/logistics", label: "Logistics", icon: Bike },
   { href: "/inventory", label: "Inventory", icon: Package },
-  { href: "/expenses", label: "Expenses", icon: Wallet },
+  { href: "/finance", label: "Finance", icon: Wallet },
   { href: "/customers", label: "Customers", icon: Users },
   { href: "/companies", label: "Switch", icon: Building2, isSwitch: true },
   { href: "/admin", label: "Admin", icon: Shield },

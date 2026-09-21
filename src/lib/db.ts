@@ -5001,6 +5001,233 @@ export function getExpenseSummary(
   };
 }
 
+/**
+ * Cash / P&L summary for a date range. Aggregates the three columns of an
+ * operator's mental model: revenue (delivered own-rider orders minus what
+ * was already pre-paid as the order was placed), rider cost (payouts owed
+ * to our own riders for those deliveries), and expenses (the `expenses`
+ * table for any category). Returns one row per day in range plus totals.
+ *
+ * Pathao deliveries are excluded from revenue and rider cost — they're
+ * counted as a single line item in the books (pathaoFare), not the rider
+ * cost we manage directly.
+ */
+export function getCashSummary(
+  from: string,
+  to: string,
+  companyId: number
+): {
+  from: string;
+  to: string;
+  total: { revenue: number; riderCost: number; expenses: number; net: number; deliveredOrders: number };
+  byDay: Array<{
+    date: string;
+    revenue: number;
+    riderCost: number;
+    expenses: number;
+    net: number;
+    deliveredOrders: number;
+    expenseCount: number;
+  }>;
+  expensesByCategory: Array<{ category: string; amount: number; count: number }>;
+} {
+  const db = getDb();
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  // Per-day revenue + rider cost + delivered-count for own-rider delivered.
+  const byDayOrders = db
+    .prepare(
+      `SELECT date,
+              SUM(CASE WHEN paid IS NULL OR paid = 0
+                       THEN total
+                       ELSE total - paid END) AS revenue,
+              SUM(riderCost) AS riderCost,
+              COUNT(*) AS deliveredOrders
+         FROM orders
+        WHERE companyId = ?
+          AND date BETWEEN ? AND ?
+          AND status = 'delivered'
+          AND deliveryMode != 'pathao'
+        GROUP BY date`
+    )
+    .all(companyId, from, to) as Array<{
+      date: string;
+      revenue: number | null;
+      riderCost: number | null;
+      deliveredOrders: number;
+    }>;
+
+  const byDayExpenses = db
+    .prepare(
+      `SELECT date,
+              SUM(amount) AS expenses,
+              COUNT(*) AS expenseCount
+         FROM expenses
+        WHERE companyId = ?
+          AND date BETWEEN ? AND ?
+        GROUP BY date`
+    )
+    .all(companyId, from, to) as Array<{
+      date: string;
+      expenses: number | null;
+      expenseCount: number;
+    }>;
+
+  const expensesByCategory = db
+    .prepare(
+      `SELECT category,
+              SUM(amount) AS amount,
+              COUNT(*) AS n
+         FROM expenses
+        WHERE companyId = ?
+          AND date BETWEEN ? AND ?
+        GROUP BY category
+        ORDER BY amount DESC`
+    )
+    .all(companyId, from, to) as Array<{
+      category: string;
+      amount: number;
+      n: number;
+    }>;
+
+  const ordersMap = new Map(byDayOrders.map((r) => [r.date, r]));
+  const expensesMap = new Map(byDayExpenses.map((r) => [r.date, r]));
+
+  const dates: string[] = [];
+  {
+    const start = new Date(from + "T00:00:00Z");
+    const end = new Date(to + "T00:00:00Z");
+    const cur = new Date(start);
+    while (cur <= end) {
+      dates.push(cur.toISOString().slice(0, 10));
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+  }
+
+  const byDay = dates.map((date) => {
+    const o = ordersMap.get(date);
+    const e = expensesMap.get(date);
+    const revenue = Number(o?.revenue ?? 0);
+    const riderCost = Number(o?.riderCost ?? 0);
+    const expenses = Number(e?.expenses ?? 0);
+    const deliveredOrders = o?.deliveredOrders ?? 0;
+    const expenseCount = e?.expenseCount ?? 0;
+    return {
+      date,
+      revenue: round2(revenue),
+      riderCost: round2(riderCost),
+      expenses: round2(expenses),
+      net: round2(revenue - riderCost - expenses),
+      deliveredOrders,
+      expenseCount,
+    };
+  });
+
+  const total = byDay.reduce(
+    (acc, d) => {
+      acc.revenue += d.revenue;
+      acc.riderCost += d.riderCost;
+      acc.expenses += d.expenses;
+      acc.net += d.net;
+      acc.deliveredOrders += d.deliveredOrders;
+      return acc;
+    },
+    { revenue: 0, riderCost: 0, expenses: 0, net: 0, deliveredOrders: 0 }
+  );
+
+  return {
+    from,
+    to,
+    total: {
+      revenue: round2(total.revenue),
+      riderCost: round2(total.riderCost),
+      expenses: round2(total.expenses),
+      net: round2(total.net),
+      deliveredOrders: total.deliveredOrders,
+    },
+    byDay,
+    expensesByCategory: expensesByCategory.map((r) => ({
+      category: r.category,
+      amount: round2(Number(r.amount)),
+      count: r.n,
+    })),
+  };
+}
+
+/**
+ * All-time cash collected / revenue / cost / expenses / net for a tenant.
+ * One query per surface — used to show "this business has delivered
+ * ৳X over time" on the top strip of the Cash / P&L tab without forcing
+ * the operator to pick a date range.
+ *
+ * Definitions match getCashSummary():
+ *   revenue      = SUM(orders.total - orders.paid) for delivered own-rider
+ *                  orders (Pathao excluded). Effectively "cash we're owed
+ *                  for delivered but not pre-paid orders" — the textbook
+ *                  definition of revenue from the operator's view.
+ *   riderCost    = SUM(orders.riderCost) for the same — what we owe riders.
+ *   expenses     = SUM(expenses.amount) — operational costs.
+ *   net          = revenue - riderCost - expenses.
+ *   deliveredOrders = COUNT of delivered own-rider orders, all dates.
+ *   firstDeliveredAt / lastDeliveredAt = oldest + newest `deliveredAt`
+ *                  timestamps, for the "since YYYY-MM-DD" caption.
+ */
+export function getCashLifetime(companyId: number): {
+  revenue: number;
+  riderCost: number;
+  expenses: number;
+  net: number;
+  deliveredOrders: number;
+  /** Earliest `deliveredAt` for an own-rider delivered order, ISO. "" if none. */
+  firstDeliveredAt: string;
+  /** Latest `deliveredAt` for an own-rider delivered order, ISO. "" if none. */
+  lastDeliveredAt: string;
+} {
+  const db = getDb();
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  const o = db
+    .prepare(
+      `SELECT
+         SUM(CASE WHEN paid IS NULL OR paid = 0
+                  THEN total
+                  ELSE total - paid END) AS revenue,
+         SUM(riderCost) AS riderCost,
+         COUNT(*) AS deliveredOrders,
+         MIN(deliveredAt) AS firstDeliveredAt,
+         MAX(deliveredAt) AS lastDeliveredAt
+         FROM orders
+        WHERE companyId = ?
+          AND status = 'delivered'
+          AND deliveryMode != 'pathao'`
+    )
+    .get(companyId) as {
+      revenue: number | null;
+      riderCost: number | null;
+      deliveredOrders: number;
+      firstDeliveredAt: string | null;
+      lastDeliveredAt: string | null;
+    };
+
+  const e = db
+    .prepare("SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE companyId = ?")
+    .get(companyId) as { total: number };
+
+  const revenue = Number(o.revenue ?? 0);
+  const riderCost = Number(o.riderCost ?? 0);
+  const expenses = Number(e.total ?? 0);
+
+  return {
+    revenue: round2(revenue),
+    riderCost: round2(riderCost),
+    expenses: round2(expenses),
+    net: round2(revenue - riderCost - expenses),
+    deliveredOrders: o.deliveredOrders ?? 0,
+    firstDeliveredAt: o.firstDeliveredAt ?? "",
+    lastDeliveredAt: o.lastDeliveredAt ?? "",
+  };
+}
+
 // --- Dashboard ---
 
 export interface DashboardStats {
