@@ -73,11 +73,36 @@ export default function RiderDeliverPage() {
     if (!accessToken || !Number.isInteger(orderId)) return;
     (async () => {
       try {
-        const res = await riderGetJson<{ order: OrderLite; pod: PodFromApi | null }>(`/api/rider/orders/${orderId}`, accessToken);
+        const res = await riderGetJson<{
+          order: OrderLite;
+          pod: PodFromApi | null;
+          otp: {
+            active: boolean;
+            dispatchedAt: string | null;
+            expiresAt: string | null;
+            attempts: number;
+            maxAttempts: number;
+            last4: string | null;
+          } | null;
+        }>(`/api/rider/orders/${orderId}`, accessToken);
         setOrder(res.order);
+        // Initialize OTP step from server state, not always "idle":
+        //   - pod.otpVerified already true → "verified"
+        //   - active OTP row exists (dispatcher pre-sent) → "ready" so the
+        //     rider sees the input field immediately instead of a 'Send
+        //     code' button that would dispatch a duplicate code.
+        let initialOtpStep: OtpStep = "idle";
+        let initialLast4: string | null = null;
+        if (res.pod?.otpVerified) {
+          initialOtpStep = "verified";
+        } else if (res.otp?.active) {
+          initialOtpStep = "ready";
+          initialLast4 = res.otp.last4 ?? null;
+        }
         setPod((p) => ({
           ...p,
-          otpStep: res.pod?.otpVerified ? "verified" : "idle",
+          otpStep: initialOtpStep,
+          otpLast4: initialLast4,
           amountCollected: res.pod?.amountCollected?.toString() ?? "",
           codMismatch:
             res.pod?.amountCollected != null && res.pod?.expectedAmount != null
@@ -408,30 +433,41 @@ export default function RiderDeliverPage() {
           <Block title="Verify with customer">
             {online ? (
               <>
-                <p style={{ fontSize: 14, color: "var(--color-text-secondary)" }}>
-                  We just sent a 4-digit code to the customer. Ask for it and enter below.
-                </p>
                 {pod.otpStep === "idle" || pod.otpStep === "wrong" ? (
                   <>
-                    {pod.otpStep === "wrong" && (
-                      <div style={warningBox}>That code didn&apos;t match. Request a new one and try again.</div>
-                    )}
+                    <p style={{ fontSize: 14, color: "var(--color-text-secondary)" }}>
+                      {pod.otpStep === "wrong"
+                        ? "That code didn\u2019t match. Request a new one and try again."
+                        : "Send a 4-digit code to the customer. Ask for it and enter below."}
+                    </p>
                     <button onClick={() => void requestOtp()} style={primaryBtn}>
                       Send code
                     </button>
                   </>
                 ) : pod.otpStep === "ready" || pod.otpStep === "verifying" ? (
-                  <OtpEntry onSubmit={verifyOtp} verifying={pod.otpStep === "verifying"} last4={pod.otpLast4} />
+                  <>
+                    <p style={{ fontSize: 14, color: "var(--color-text-secondary)" }}>
+                      {pod.otpLast4
+                        ? `Dispatcher sent a code to the customer. Code ends in ••${pod.otpLast4}. Ask for it and enter below.`
+                        : "A 4-digit code was sent to the customer. Ask for it and enter below."}
+                    </p>
+                    <OtpEntry onSubmit={verifyOtp} verifying={pod.otpStep === "verifying"} last4={pod.otpLast4} />
+                    {pod.otpStep === "ready" && (
+                      <button onClick={() => void requestOtp()} style={secondaryBtn}>
+                        Resend code
+                      </button>
+                    )}
+                  </>
                 ) : (
-                  <div style={successBox}>Code verified. Continue.</div>
-                )}
-                {pod.otpStep === "verified" && (
-                  <button
-                    onClick={() => requiresCod ? setStep("cod") : transition("delivered")}
-                    style={primaryBtn}
-                  >
-                    Continue
-                  </button>
+                  <>
+                    <div style={successBox}>Code verified. Continue.</div>
+                    <button
+                      onClick={() => requiresCod ? setStep("cod") : transition("delivered")}
+                      style={primaryBtn}
+                    >
+                      Continue
+                    </button>
+                  </>
                 )}
               </>
             ) : (
@@ -590,6 +626,18 @@ const primaryBtn: React.CSSProperties = {
   fontWeight: 700,
   cursor: "pointer",
   minHeight: 48,
+};
+
+const secondaryBtn: React.CSSProperties = {
+  padding: "10px 14px",
+  background: "transparent",
+  color: "var(--color-text)",
+  border: "1px solid var(--color-border)",
+  borderRadius: 8,
+  fontSize: 13,
+  fontWeight: 600,
+  cursor: "pointer",
+  minHeight: 44,
 };
 const inputStyle: React.CSSProperties = {
   padding: "12px 14px",

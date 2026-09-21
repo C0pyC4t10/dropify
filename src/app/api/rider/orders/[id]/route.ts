@@ -3,6 +3,8 @@ import {
   getRiderOrder,
   getProofOfDelivery,
   getDeliveryStatusHistory,
+  getActiveDeliveryOtp,
+  DELIVERY_OTP_MAX_ATTEMPTS,
 } from "@/lib/db";
 import {
   requireRider,
@@ -11,6 +13,17 @@ import {
 import { RIDER_STATUS_LABEL, FAIL_REASON_CODES } from "@/lib/rider-flow";
 
 export const dynamic = "force-dynamic";
+
+interface OtpState {
+  last4: string | null;
+  dispatchedAt: string | null;
+  expiresAt: string | null;
+  attempts: number;
+  maxAttempts: number;
+  /** True when the row is unexpired AND has attempts left. The rider
+   *  can still enter a code in this window. */
+  active: boolean;
+}
 
 export async function GET(
   request: NextRequest,
@@ -38,6 +51,32 @@ export async function GET(
 
   const pod = getProofOfDelivery(orderId);
   const history = getDeliveryStatusHistory(orderId, 20);
+
+  // Surface the active OTP so the rider knows whether the dispatcher has
+  // already sent a code (and so the deliver page can show the input
+  // immediately instead of the 'Send code' button).
+  const activeOtp = getActiveDeliveryOtp(orderId);
+  const now = Date.now();
+  const otpState: OtpState | null = activeOtp
+    ? {
+        // last4 hint: take the last 4 hex chars of the codeHash and mod
+        // 10000. The dispatch board uses the same trick; it's not the
+        // actual last 4 of the code (which we never persist in plain
+        // text), but it correlates with what the customer sees so the
+        // rider can sanity-check the customer's read-back.
+        last4:
+          activeOtp.codeHash.length >= 4
+            ? String(Number(activeOtp.codeHash.slice(-4)) % 10000).padStart(4, "0")
+            : null,
+        dispatchedAt: activeOtp.createdAt,
+        expiresAt: activeOtp.expiresAt,
+        attempts: activeOtp.attempts,
+        maxAttempts: DELIVERY_OTP_MAX_ATTEMPTS,
+        active:
+          new Date(activeOtp.expiresAt).getTime() > now &&
+          activeOtp.attempts < DELIVERY_OTP_MAX_ATTEMPTS,
+      }
+    : null;
 
   return NextResponse.json({
     ok: true,
@@ -82,6 +121,7 @@ export async function GET(
           uploadedAt: pod.uploadedAt,
         }
       : null,
+    otp: otpState,
     history: history.map((h) => ({
       id: h.id,
       fromStatus: h.fromStatus,
