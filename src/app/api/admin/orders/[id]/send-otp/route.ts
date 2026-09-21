@@ -75,7 +75,7 @@ export async function POST(
 
   const created = createDeliveryOtp({ orderId, phone: order.customerPhone });
 
-  const body_text = `Your Dropify delivery code is ${created.code}. Share it with the rider to confirm receipt.`;
+  const body_text = `Your Bazarey Ltd Meat delivery code is ${created.code}. Share it with the rider to confirm receipt.`;
   const sendResult = await activeSmsAdapter.sendSms({ to: order.customerPhone, body: body_text });
   if (sendResult.ok) {
     markDeliveryOtpSmsSent(created.id);
