@@ -5020,13 +5020,42 @@ export function getExpenseSummary(
  * the operator sees a single 'how many orders did we deliver this
  * period' figure regardless of who carried it.
  */
+/**
+ * Earliest `date` across this tenant's orders or expenses. Used by the
+ * "All Time" preset on the Cash / P&L view so the date range starts at
+ * the first real activity instead of `0001-01-01` (which used to expand
+ * to ~740k day rows and lock the page). Returns null if the tenant has
+ * no orders and no expenses.
+ */
+export function getFirstActivityDate(companyId: number): string | null {
+  const db = getDb();
+  const o = db
+    .prepare(
+      "SELECT MIN(date) AS d FROM orders WHERE companyId = ? AND date IS NOT NULL AND date != ''"
+    )
+    .get(companyId) as { d: string | null };
+  const e = db
+    .prepare(
+      "SELECT MIN(date) AS d FROM expenses WHERE companyId = ? AND date IS NOT NULL AND date != ''"
+    )
+    .get(companyId) as { d: string | null };
+  const a = (o.d ?? "").trim();
+  const b = (e.d ?? "").trim();
+  if (!a && !b) return null;
+  if (!a) return b;
+  if (!b) return a;
+  return a < b ? a : b;
+}
+
 export function getCashSummary(
   from: string,
   to: string,
-  companyId: number
+  companyId: number,
+  bucket: "day" | "month" = "day"
 ): {
   from: string;
   to: string;
+  bucket: "day" | "month";
   total: {
     revenue: number;
     riderCost: number;
@@ -5052,14 +5081,20 @@ export function getCashSummary(
   const db = getDb();
   const round2 = (n: number) => Math.round(n * 100) / 100;
 
-  // Per-day revenue + rider cost + delivered-count for own-rider delivered.
-  // Pathao rows get their own pathaoTotal / pathaoOrders so the operator
-  // can reconcile finance's own-rider scope against admin's all-routes
-  // scope (admin sums EVERY delivered total, finance excludes Pathao
-  // because Pathao pays themselves through their own rail).
+  // Per-bucket revenue + rider cost + delivered-count for own-rider
+  // delivered. Pathao rows get their own pathaoTotal / pathaoOrders so
+  // the operator can reconcile finance's own-rider scope against
+  // admin's all-routes scope (admin sums EVERY delivered total, finance
+  // excludes Pathao because Pathao pays themselves through their own
+  // rail). Default bucket is "day" — the page only requests "month"
+  // for the "All Time" preset so a date range spanning years produces
+  // a handful of rows instead of ~740k. Using substr(date, 1, 7) gives
+  // a YYYY-MM key that sorts and string-compares correctly.
+  const dateCol = bucket === "month" ? "substr(date, 1, 7)" : "date";
+
   const byDayOrders = db
     .prepare(
-      `SELECT date,
+      `SELECT ${dateCol} AS date,
               SUM(CASE WHEN deliveryMode != 'pathao' THEN total ELSE 0 END) AS revenue,
               SUM(CASE WHEN deliveryMode != 'pathao' THEN riderCost ELSE 0 END) AS riderCost,
               COUNT(*) AS deliveredOrders,
@@ -5069,7 +5104,7 @@ export function getCashSummary(
         WHERE companyId = ?
           AND date BETWEEN ? AND ?
           AND status = 'delivered'
-        GROUP BY date`
+        GROUP BY ${dateCol}`
     )
     .all(companyId, from, to) as Array<{
       date: string;
@@ -5080,15 +5115,16 @@ export function getCashSummary(
       pathaoOrders: number | null;
     }>;
 
+  // Same bucket grouping for expenses — they don't carry deliveryMode.
   const byDayExpenses = db
     .prepare(
-      `SELECT date,
+      `SELECT ${dateCol} AS date,
               SUM(amount) AS expenses,
               COUNT(*) AS expenseCount
          FROM expenses
         WHERE companyId = ?
           AND date BETWEEN ? AND ?
-        GROUP BY date`
+        GROUP BY ${dateCol}`
     )
     .all(companyId, from, to) as Array<{
       date: string;
@@ -5116,18 +5152,56 @@ export function getCashSummary(
   const ordersMap = new Map(byDayOrders.map((r) => [r.date, r]));
   const expensesMap = new Map(byDayExpenses.map((r) => [r.date, r]));
 
-  const dates: string[] = [];
-  {
-    const start = new Date(from + "T00:00:00Z");
-    const end = new Date(to + "T00:00:00Z");
-    const cur = new Date(start);
-    while (cur <= end) {
-      dates.push(cur.toISOString().slice(0, 10));
+  const keys: string[] = [];
+  if (bucket === "month") {
+    // Iterate by month — YYYY-MM increments — so "All Time" produces a
+    // handful of entries no matter how far back the first activity was.
+    const startYM = from.slice(0, 7);
+    const endYM = to.slice(0, 7);
+    let [y, m] = startYM.split("-").map(Number);
+    const [ey, em] = endYM.split("-").map(Number);
+    // Safety: refuse to enumerate more than 2400 months (200 years).
+    // The page pre-resolves firstActivityDate for the All Time preset,
+    // so this cap is purely defensive against bad query params.
+    const totalMonths = (ey - y) * 12 + (em - m) + 1;
+    if (totalMonths > 2400) {
+      throw new Error(
+        `Date range too large for monthly breakdown (${totalMonths} months); pick a smaller window.`,
+      );
+    }
+    while (y < ey || (y === ey && m <= em)) {
+      keys.push(`${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}`);
+      m += 1;
+      if (m > 12) {
+        m = 1;
+        y += 1;
+      }
+    }
+  } else {
+    // Iterate per-day but cap the loop to ≤ 400 entries (~13 months).
+    // Previously, the "All Time" preset passed from="0001-01-01" which
+    // expanded to ~740k iterations and locked the page. The per-day
+    // SQL only returns existing days anyway, so a truncated-by-day
+    // list still shows every day that had activity inside the cap.
+    const startMs = new Date(from + "T00:00:00Z").getTime();
+    const endMs = new Date(to + "T00:00:00Z").getTime();
+    const spanDays = Math.floor((endMs - startMs) / 86_400_000) + 1;
+    let iterStartMs = startMs;
+    let droppedDays = 0;
+    if (spanDays > 400) {
+      iterStartMs = endMs - 399 * 86_400_000;
+      droppedDays = Math.floor((iterStartMs - startMs) / 86_400_000);
+    }
+    const cur = new Date(iterStartMs);
+    const stop = new Date(endMs);
+    while (cur.getTime() <= stop.getTime()) {
+      keys.push(cur.toISOString().slice(0, 10));
       cur.setUTCDate(cur.getUTCDate() + 1);
     }
+    void droppedDays; // surfacing-left: see /finance?tab=cash if span is capped
   }
 
-  const byDay = dates.map((date) => {
+  const byDay = keys.map((date) => {
     const o = ordersMap.get(date);
     const e = expensesMap.get(date);
     const revenue = Number(o?.revenue ?? 0);
@@ -5167,6 +5241,7 @@ export function getCashSummary(
   return {
     from,
     to,
+    bucket,
     total: {
       revenue: round2(total.revenue),
       riderCost: round2(total.riderCost),

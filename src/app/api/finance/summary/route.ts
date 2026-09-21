@@ -33,7 +33,12 @@ export async function GET(request: NextRequest) {
   }
 
   const companyId = await getCompanyIdFromRequest(request);
-  const summary = getCashSummary(from, to, companyId);
+  // bucket query param: "day" (default — current behavior) or "month" so
+  // the All Time preset doesn't have to materialize ~740k daily rows for
+  // a range spanning years. month groups by YYYY-MM via SQL substr().
+  const bucketParam = url.searchParams.get("bucket");
+  const bucket: "day" | "month" = bucketParam === "month" ? "month" : "day";
+  const summary = getCashSummary(from, to, companyId, bucket);
 
   return NextResponse.json({
     ok: true,

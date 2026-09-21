@@ -33,6 +33,7 @@ interface SummaryPayload {
   ok: true;
   from: string;
   to: string;
+  bucket: "day" | "month";
   total: {
     revenue: number;
     riderCost: number;
@@ -63,12 +64,28 @@ function firstOfMonthIso(): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-01`;
 }
 
+/** Pick a query bucket based on the date span. Returns "month" for
+ *  year-long ranges (the All Time preset, custom ranges > 180 days) and
+ *  "day" for short ones so the breakdown table stays readable. */
+function bucketFor(from: string, to: string): "day" | "month" {
+  const spanDays = Math.floor(
+    (new Date(to + "T00:00:00Z").getTime() - new Date(from + "T00:00:00Z").getTime()) /
+      86_400_000,
+  );
+  return spanDays > 180 ? "month" : "day";
+}
+
 function rangeFor(preset: RangePreset, customFrom: string, customTo: string): { from: string; to: string } {
   const today = todayIso();
   if (preset === "today") return { from: today, to: today };
   if (preset === "week") return { from: isoDaysAgo(6), to: today };
   if (preset === "month") return { from: firstOfMonthIso(), to: today };
-  if (preset === "all") return { from: "0001-01-01", to: today };
+  // "All Time" — we used to expand to "0001-01-01" which produced
+  // ~740k day rows and locked the page. Now: the page fetches the
+  // tenant's firstActivityDate and passes it as `from`. The fallback
+  // here is just the previous century so a misconfigured caller
+  // doesn't accidentally hang the page.
+  if (preset === "all") return { from: "2000-01-01", to: today };
   return { from: customFrom, to: customTo };
 }
 
@@ -112,12 +129,36 @@ export function CashView() {
     [preset, customFrom, customTo]
   );
 
+  const [allTimeFrom, setAllTimeFrom] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
+      // For "All Time" the API would otherwise see from="2000-01-01" and
+      // produce ~9500+ day rows. Resolve the tenant's firstActivityDate
+      // first and substitute it in. Falls back gracefully if the helper
+      // endpoint isn't reachable.
+      let effectiveFrom = from;
+      if (preset === "all") {
+        if (allTimeFrom == null) {
+          try {
+            const r = await fetch("/api/finance/first-activity", {
+              cache: "no-store",
+            });
+            const j = await r.json();
+            if (j.ok && j.date) setAllTimeFrom(j.date);
+            effectiveFrom = j.ok && j.date ? j.date : from;
+          } catch {
+            effectiveFrom = from;
+          }
+        } else {
+          effectiveFrom = allTimeFrom;
+        }
+      }
+      const bucket = bucketFor(effectiveFrom, to);
       const res = await fetch(
-        `/api/finance/summary?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+        `/api/finance/summary?from=${encodeURIComponent(effectiveFrom)}&to=${encodeURIComponent(to)}&bucket=${bucket}`,
         { cache: "no-store" }
       );
       const j = await res.json();
@@ -132,7 +173,7 @@ export function CashView() {
     } finally {
       setLoading(false);
     }
-  }, [from, to]);
+  }, [from, to, preset, allTimeFrom]);
 
   // Lifetime is invariant — fetch once on mount and let it sit at the top.
   useEffect(() => {
@@ -392,73 +433,87 @@ export function CashView() {
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12 }}>
         {/* Daily breakdown */}
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <div
-            style={{
-              padding: "10px 14px",
-              borderBottom: "1px solid var(--color-border, var(--border))",
-              fontWeight: 600,
-              fontSize: 13,
-            }}
-          >
-            Daily breakdown
-          </div>
-          <div style={{ overflowX: "auto", maxHeight: 520, overflowY: "auto" }}>
-            <table className="table" style={{ width: "100%", fontSize: 12 }}>
-              <thead>
-                <tr>
-                  <th style={{ textAlign: "left", position: "sticky", top: 0, background: "var(--bg-primary)" }}>Date</th>
-                  <th style={{ textAlign: "right", position: "sticky", top: 0, background: "var(--bg-primary)" }}>Revenue</th>
-                  <th style={{ textAlign: "right", position: "sticky", top: 0, background: "var(--bg-primary)" }}>Rider cost</th>
-                  <th style={{ textAlign: "right", position: "sticky", top: 0, background: "var(--bg-primary)" }}>Expenses</th>
-                  <th style={{ textAlign: "right", position: "sticky", top: 0, background: "var(--bg-primary)" }}>Net</th>
-                  <th style={{ textAlign: "right", position: "sticky", top: 0, background: "var(--bg-primary)" }}>Orders</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading && !data && (
+<div
+              style={{
+                padding: "10px 14px",
+                borderBottom: "1px solid var(--color-border, var(--border))",
+                fontWeight: 600,
+                fontSize: 13,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <span>{data?.bucket === "month" ? "Monthly breakdown" : "Daily breakdown"}</span>
+              {data?.bucket === "month" && (
+                <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 400 }}>
+                  Showing by month — date ranges over 180 days aggregate monthly so
+                  the table stays readable.
+                </span>
+              )}
+            </div>
+            <div style={{ overflowX: "auto", maxHeight: 520, overflowY: "auto" }}>
+              <table className="table" style={{ width: "100%", fontSize: 12 }}>
+                <thead>
                   <tr>
-                    <td colSpan={6} style={{ padding: 14, textAlign: "center", color: "var(--text-muted)" }}>
-                      Loading…
-                    </td>
+                    <th style={{ textAlign: "left", position: "sticky", top: 0, background: "var(--bg-primary)" }}>
+                      {data?.bucket === "month" ? "Month" : "Date"}
+                    </th>
+                    <th style={{ textAlign: "right", position: "sticky", top: 0, background: "var(--bg-primary)" }}>Revenue</th>
+                    <th style={{ textAlign: "right", position: "sticky", top: 0, background: "var(--bg-primary)" }}>Rider cost</th>
+                    <th style={{ textAlign: "right", position: "sticky", top: 0, background: "var(--bg-primary)" }}>Expenses</th>
+                    <th style={{ textAlign: "right", position: "sticky", top: 0, background: "var(--bg-primary)" }}>Net</th>
+                    <th style={{ textAlign: "right", position: "sticky", top: 0, background: "var(--bg-primary)" }}>Orders</th>
                   </tr>
-                )}
-                {data?.byDay.length === 0 && (
-                  <tr>
-                    <td colSpan={6} style={{ padding: 14, textAlign: "center", color: "var(--text-muted)" }}>
-                      No activity in this range.
-                    </td>
-                  </tr>
-                )}
-                {data?.byDay.map((d) => (
-                  <tr key={d.date}>
-                    <td style={{ whiteSpace: "nowrap" }}>{d.date}</td>
-                    <td style={{ textAlign: "right", color: "var(--accent-green)" }}>
-                      {formatMoney(d.revenue)}
-                    </td>
-                    <td style={{ textAlign: "right", color: "var(--accent-amber)" }}>
-                      {formatMoney(d.riderCost)}
-                    </td>
-                    <td style={{ textAlign: "right", color: "var(--accent-blue)" }}>
-                      {formatMoney(d.expenses)}
-                    </td>
-                    <td
-                      style={{
-                        textAlign: "right",
-                        fontWeight: 600,
-                        color: d.net >= 0 ? "var(--accent-green)" : "var(--accent-red)",
-                      }}
-                    >
-                      {formatMoney(d.net)}
-                    </td>
-                    <td style={{ textAlign: "right", color: "var(--text-muted)" }}>
-                      {d.deliveredOrders}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {loading && !data && (
+                    <tr>
+                      <td colSpan={6} style={{ padding: 14, textAlign: "center", color: "var(--text-muted)" }}>
+                        Loading…
+                      </td>
+                    </tr>
+                  )}
+                  {data?.byDay.length === 0 && (
+                    <tr>
+                      <td colSpan={6} style={{ padding: 14, textAlign: "center", color: "var(--text-muted)" }}>
+                        No activity in this range.
+                      </td>
+                    </tr>
+                  )}
+                  {data?.byDay.map((d) => (
+                    <tr key={d.date}>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        {data?.bucket === "month" ? d.date : d.date}
+                      </td>
+                      <td style={{ textAlign: "right", color: "var(--accent-green)" }}>
+                        {formatMoney(d.revenue)}
+                      </td>
+                      <td style={{ textAlign: "right", color: "var(--accent-amber)" }}>
+                        {formatMoney(d.riderCost)}
+                      </td>
+                      <td style={{ textAlign: "right", color: "var(--accent-blue)" }}>
+                        {formatMoney(d.expenses)}
+                      </td>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          fontWeight: 600,
+                          color: d.net >= 0 ? "var(--accent-green)" : "var(--accent-red)",
+                        }}
+                      >
+                        {formatMoney(d.net)}
+                      </td>
+                      <td style={{ textAlign: "right", color: "var(--text-muted)" }}>
+                        {d.deliveredOrders}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
 
         {/* Expenses by category */}
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
