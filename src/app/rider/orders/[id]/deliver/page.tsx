@@ -461,9 +461,7 @@ export default function RiderDeliverPage() {
                 ) : pod.otpStep === "ready" || pod.otpStep === "verifying" ? (
                   <>
                     <p style={{ fontSize: 14, color: "var(--color-text-secondary)" }}>
-                      {pod.otpLast4
-                        ? `Code sent to the customer — ends in ••${pod.otpLast4}. Ask for it and enter below.`
-                        : "A 4-digit code was sent to the customer. Ask for it and enter below."}
+                      A 4-digit code was sent to the customer. Ask for it and enter below.
                     </p>
                     {pod.otpWrongAttempts > 0 && (
                       <div style={errorBox}>
@@ -477,7 +475,6 @@ export default function RiderDeliverPage() {
                     <OtpEntry
                       onSubmit={verifyOtp}
                       verifying={pod.otpStep === "verifying"}
-                      last4={pod.otpLast4}
                       key={`otp-${pod.otpWrongAttempts}`}
                     />
                     <button onClick={() => void requestOtp()} style={secondaryBtn}>
@@ -550,7 +547,7 @@ export default function RiderDeliverPage() {
   );
 }
 
-function OtpEntry({ onSubmit, verifying, last4 }: { onSubmit: (code: string) => void; verifying: boolean; last4: string | null }) {
+function OtpEntry({ onSubmit, verifying }: { onSubmit: (code: string) => void; verifying: boolean }) {
   const [code, setCode] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -569,7 +566,7 @@ function OtpEntry({ onSubmit, verifying, last4 }: { onSubmit: (code: string) => 
         maxLength={4}
         value={code}
         onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 4))}
-        placeholder="4 digits"
+        placeholder="Enter 4-digit code"
         style={{ ...inputStyle, fontSize: 24, letterSpacing: 8, textAlign: "center" }}
         autoFocus
       />
@@ -580,11 +577,6 @@ function OtpEntry({ onSubmit, verifying, last4 }: { onSubmit: (code: string) => 
       >
         {verifying ? "Checking…" : "Verify"}
       </button>
-      {last4 && (
-        <div style={{ fontSize: 12, color: "var(--color-text-muted)", textAlign: "center" }}>
-          Code ends in <strong>••{last4}</strong>
-        </div>
-      )}
     </div>
   );
 }
