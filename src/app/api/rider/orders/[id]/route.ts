@@ -11,6 +11,7 @@ import {
   riderGuardErrorResponse,
 } from "@/lib/auth/rider-guard";
 import { RIDER_STATUS_LABEL, FAIL_REASON_CODES } from "@/lib/rider-flow";
+import { otpLast4FromHash } from "@/lib/otp-hint";
 
 export const dynamic = "force-dynamic";
 
@@ -59,15 +60,11 @@ export async function GET(
   const now = Date.now();
   const otpState: OtpState | null = activeOtp
     ? {
-        // last4 hint: take the last 4 hex chars of the codeHash and mod
-        // 10000. The dispatch board uses the same trick; it's not the
-        // actual last 4 of the code (which we never persist in plain
-        // text), but it correlates with what the customer sees so the
-        // rider can sanity-check the customer's read-back.
-        last4:
-          activeOtp.codeHash.length >= 4
-            ? String(Number(activeOtp.codeHash.slice(-4)) % 10000).padStart(4, "0")
-            : null,
+        // last4 hint: derived from the salted hash (the actual code is
+        // never persisted). See lib/otp-hint.ts for the derivation and
+        // why a plain Number() call would silently produce "NaN" when
+        // the slice contains hex letters.
+        last4: otpLast4FromHash(activeOtp.codeHash),
         dispatchedAt: activeOtp.createdAt,
         expiresAt: activeOtp.expiresAt,
         attempts: activeOtp.attempts,

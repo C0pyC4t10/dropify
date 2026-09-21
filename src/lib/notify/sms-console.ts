@@ -41,5 +41,3 @@ export const consoleSmsAdapter: SmsAdapter = {
     return { ok: true, providerId: record.providerId };
   },
 };
-
-export const activeSmsAdapter: SmsAdapter = consoleSmsAdapter;
