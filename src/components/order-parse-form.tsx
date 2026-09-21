@@ -16,6 +16,7 @@ import type { Product, Settings, OrderSource } from "@/lib/types";
 import { parseOrderFromText, type ParsedOrder, type ParsedOrderItem } from "@/lib/order-parser";
 import { DHAKA_AREAS_FLAT } from "@/lib/ui";
 import CustomerMatchBanner from "./customer-match-banner";
+import { SearchableSelect, type SearchableOption } from "./searchable-select";
 
 interface Props {
   products: Product[];
@@ -53,6 +54,12 @@ export default function OrderParseForm({ products, settings }: Props) {
         unit: p.unitCode,
       })),
     [products]
+  );
+
+  // Static — DHAKA_AREAS_FLAT is a module-level constant.
+  const areaOptions: SearchableOption[] = useMemo(
+    () => DHAKA_AREAS_FLAT.map((a) => ({ value: a, label: a })),
+    []
   );
 
   // Run parser on text change with a small debounce. Avoids re-running on every
@@ -285,6 +292,7 @@ export default function OrderParseForm({ products, settings }: Props) {
               deliveryFee={deliveryFee}
               computedTotal={computedTotal}
               totalHintDiff={totalHintDiff}
+              areaOptions={areaOptions}
             />
           ) : (
             <section className="card" style={{ padding: 18, color: "var(--text-muted)" }}>
@@ -330,11 +338,11 @@ Product	Quantity	Total
 2	1,790.00৳`;
 
 const FORM_CSS = `
-  .qp-input { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-elev, transparent); color: var(--text-primary); font-family: inherit; font-size: 13px; }
-  .qp-input:focus { outline: none; border-color: var(--accent-green); }
+  .qp-input { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-bg-elevated); color: var(--color-text); font-family: inherit; font-size: 13px; }
+  .qp-input:focus { outline: none; border-color: var(--color-brand); }
   .qp-input.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .qp-row { display: grid; grid-template-columns: 2fr 0.7fr 0.7fr auto; gap: 8px; align-items: start; margin-bottom: 8px; padding: 6px; border: 1px dashed var(--border); border-radius: 6px; }
-  .qp-kbd { font-family: ui-monospace, monospace; font-size: 11px; padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-elev); }
+  .qp-row { display: grid; grid-template-columns: 2fr 0.7fr 0.7fr auto; gap: 8px; align-items: start; margin-bottom: 8px; padding: 6px; border: 1px dashed var(--color-border); border-radius: 6px; }
+  .qp-kbd { font-family: ui-monospace, monospace; font-size: 11px; padding: 1px 5px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-elevated); }
 `;
 
 const kbdStyle = {
@@ -358,6 +366,7 @@ function ParsePreview({
   itemsSum,
   deliveryFee,
   computedTotal,
+  areaOptions,
   totalHintDiff,
 }: {
   parsed: ParsedOrder;
@@ -372,6 +381,7 @@ function ParsePreview({
   deliveryFee: number;
   computedTotal: number;
   totalHintDiff: number | null;
+  areaOptions: SearchableOption[];
 }) {
   const cf = (val: number) => (val >= 0.85 ? "ok" : val >= 0.5 ? "warn" : "bad");
   const c = parsed.confidence;
@@ -507,20 +517,14 @@ function ParsePreview({
               );
             }
             return (
-              <select
-                className="qp-input"
+              <SearchableSelect
                 value={parsed.area}
-                onChange={(e) => onPatch({ area: e.target.value })}
+                onChange={(v) => onPatch({ area: v })}
+                options={areaOptions}
+                placeholder="— pick an area —"
+                emptyOption={{ value: "Other", label: "Other (type custom)…", hint: "Custom area not in the list" }}
                 disabled={disabled}
-              >
-                <option value="">— pick —</option>
-                {DHAKA_AREAS_FLAT.map((a) => (
-                  <option key={a} value={a}>
-                    {a}
-                  </option>
-                ))}
-                <option value="Other">Other (type custom)…</option>
-              </select>
+              />
             );
           })()}
         </Field>

@@ -132,10 +132,10 @@ export function SearchableSelect({
           justifyContent: "space-between",
           gap: 6,
           padding: "8px 12px",
-          background: "var(--bg-primary)",
-          border: `1px solid ${open ? "var(--accent-green)" : "var(--border)"}`,
+          background: "var(--color-bg-elevated)",
+          border: `1px solid ${open ? "var(--color-brand)" : "var(--color-border)"}`,
           borderRadius: 6,
-          color: selected ? "var(--text-primary)" : "var(--text-muted)",
+          color: selected ? "var(--color-text)" : "var(--color-text-muted)",
           fontSize: 14,
           cursor: disabled ? "not-allowed" : "pointer",
           opacity: disabled ? 0.6 : 1,
@@ -170,8 +170,8 @@ export function SearchableSelect({
             top: "calc(100% + 4px)",
             left: 0,
             right: 0,
-            background: "var(--bg-secondary)",
-            border: "1px solid var(--border)",
+            background: "var(--color-bg-elevated)",
+            border: "1px solid var(--color-border)",
             borderRadius: 6,
             zIndex: 50,
             boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
@@ -185,7 +185,7 @@ export function SearchableSelect({
             style={{
               position: "relative",
               padding: 6,
-              borderBottom: "1px solid var(--border)",
+              borderBottom: "1px solid var(--color-border)",
               flexShrink: 0,
             }}
           >
@@ -196,7 +196,7 @@ export function SearchableSelect({
                 left: 14,
                 top: "50%",
                 transform: "translateY(-50%)",
-                color: "var(--text-muted)",
+                color: "var(--color-text-muted)",
                 pointerEvents: "none",
               }}
             />
@@ -223,7 +223,7 @@ export function SearchableSelect({
                   transform: "translateY(-50%)",
                   background: "transparent",
                   border: "none",
-                  color: "var(--text-muted)",
+                  color: "var(--color-text-muted)",
                   cursor: "pointer",
                   padding: 2,
                   display: "flex",
@@ -241,7 +241,7 @@ export function SearchableSelect({
                 style={{
                   padding: "10px 8px",
                   fontSize: 12,
-                  color: "var(--text-muted)",
+                  color: "var(--color-text-muted)",
                   textAlign: "center",
                 }}
               >
@@ -265,9 +265,9 @@ export function SearchableSelect({
                     padding: "7px 10px",
                     border: "none",
                     background: isHighlighted
-                      ? "var(--bg-hover)"
+                      ? "var(--color-bg-hover)"
                       : "transparent",
-                    color: "var(--text-primary)",
+                    color: "var(--color-text)",
                     fontSize: 13,
                     cursor: "pointer",
                     borderRadius: 4,
@@ -288,7 +288,7 @@ export function SearchableSelect({
                     <div
                       style={{
                         fontSize: 11,
-                        color: "var(--text-muted)",
+                        color: "var(--color-text-muted)",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
