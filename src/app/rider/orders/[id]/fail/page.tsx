@@ -157,8 +157,8 @@ const headerStyle: React.CSSProperties = {
   justifyContent: "space-between",
   alignItems: "center",
   padding: "12px 16px",
-  background: "var(--bg-elevated, #fff)",
-  borderBottom: "1px solid var(--border)",
+  background: "var(--bg-elevated)",
+  borderBottom: "1px solid var(--color-border)",
 };
 const backBtn: React.CSSProperties = {
   background: "transparent",
@@ -169,13 +169,14 @@ const backBtn: React.CSSProperties = {
   padding: "4px 8px",
 };
 const cardStyle: React.CSSProperties = {
-  background: "var(--bg-elevated, #fff)",
-  border: "1px solid var(--border)",
+  background: "var(--bg-elevated)",
+  border: "1px solid var(--color-border)",
   borderRadius: 12,
   padding: 16,
   display: "flex",
   flexDirection: "column",
   gap: 14,
+  boxShadow: "0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.06)",
 };
 const inputStyle: React.CSSProperties = {
   padding: "12px 14px",

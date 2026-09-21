@@ -593,7 +593,7 @@ function Stepper({ current, requiresCod, otpVerified }: { current: Step; require
 
 function Block({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ background: "var(--bg-elevated, #fff)", border: "1px solid var(--border)", borderRadius: 12, padding: 16 }}>
+    <div style={cardStyle}>
       <h2 style={{ fontSize: 16, margin: "0 0 12px", fontWeight: 700 }}>{title}</h2>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{children}</div>
     </div>
@@ -605,8 +605,8 @@ const headerStyle: React.CSSProperties = {
   justifyContent: "space-between",
   alignItems: "center",
   padding: "12px 16px",
-  background: "var(--bg-elevated, #fff)",
-  borderBottom: "1px solid var(--border)",
+  background: "var(--bg-elevated)",
+  borderBottom: "1px solid var(--color-border)",
 };
 const backButtonStyle: React.CSSProperties = {
   background: "transparent",
@@ -616,9 +616,16 @@ const backButtonStyle: React.CSSProperties = {
   color: "var(--color-text)",
   padding: "4px 8px",
 };
+const cardStyle: React.CSSProperties = {
+  background: "var(--bg-elevated)",
+  border: "1px solid var(--color-border)",
+  borderRadius: 12,
+  padding: 16,
+  boxShadow: "0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.06)",
+};
 const primaryBtn: React.CSSProperties = {
   padding: "14px 18px",
-  background: "var(--color-brand, #1a7a3a)",
+  background: "var(--color-brand)",
   color: "#fff",
   border: "none",
   borderRadius: 10,
@@ -643,31 +650,31 @@ const inputStyle: React.CSSProperties = {
   padding: "12px 14px",
   fontSize: 16,
   borderRadius: 8,
-  border: "1px solid var(--border)",
-  background: "var(--bg-primary, #fafafa)",
-  color: "var(--color-text, #111)",
+  border: "1px solid var(--color-border)",
+  background: "var(--bg-primary)",
+  color: "var(--color-text)",
 };
 const errorBox: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 8,
-  background: "#f8d7da",
-  color: "#721c24",
-  border: "1px solid #f1aeb5",
+  background: "var(--tint-danger-18)",
+  color: "var(--color-danger)",
+  border: "1px solid var(--tint-danger-25)",
   marginBottom: 10,
   fontSize: 14,
 };
 const successBox: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 8,
-  background: "#e6f4ea",
-  color: "var(--color-success, #1a7a3a)",
+  background: "var(--tint-success-18)",
+  color: "var(--color-success)",
   fontSize: 14,
 };
 const warningBox: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 8,
-  background: "var(--color-warning, #fff3cd)",
-  color: "#8a6d00",
+  background: "var(--tint-warning-18)",
+  color: "var(--color-warning)",
   fontSize: 14,
 };
 const pendingBanner: React.CSSProperties = {
@@ -684,7 +691,7 @@ const pendingBanner: React.CSSProperties = {
 };
 const syncBtn: React.CSSProperties = {
   padding: "5px 10px",
-  background: "#fff",
+  background: "var(--bg-elevated)",
   color: "var(--color-warning)",
   border: "none",
   borderRadius: 6,
@@ -692,8 +699,8 @@ const syncBtn: React.CSSProperties = {
   cursor: "pointer",
 };
 const offlineBanner: React.CSSProperties = {
-  background: "#fff3cd",
-  color: "#8a6d00",
+  background: "var(--tint-warning-18)",
+  color: "var(--color-warning)",
   padding: "8px 12px",
   borderRadius: 8,
   marginBottom: 10,
