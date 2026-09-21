@@ -29,7 +29,20 @@ export async function GET(
   }
   const url = new URL(request.url);
   const date = url.searchParams.get("date") || todayStr();
-  const orders = getRiderPlanOrders(riderId, date, companyId);
+  // Route-planning view: hide already-completed (delivered) and
+  // failed (cancelled, returned) orders, plus pending-approval ones
+  // that aren't yet ready to be on a rider's plan. The raw
+  // getRiderPlanOrders is still used by /api/rider/me where today's
+  // ALL-status counts matter.
+  const TERMINAL: ReadonlyArray<string> = [
+    "delivered",
+    "cancelled",
+    "returned",
+    "pending-approval",
+  ];
+  const orders = getRiderPlanOrders(riderId, date, companyId).filter(
+    (o) => !TERMINAL.includes(o.status),
+  );
   const shop = getShopLocation(companyId);
   return NextResponse.json({ riderId, date, shop, orders });
 }

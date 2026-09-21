@@ -4273,13 +4273,20 @@ export function getUnassignedOrders(date: string, companyId: number): Order[] {
 }
 
 /** Get all currently-planned (assigned + sequenced) own-rider orders for a date,
- *  grouped by rider. Useful for the /routes landing page. */
+ *  grouped by rider. Useful for the /routes landing page.
+ *
+ *  Only ACTIVE orders are returned — already-delivered, cancelled, returned,
+ *  and pending-approval orders are filtered out. The route landing page is
+ *  about "what each rider still owes to deliver today", and a delivered
+ *  order shouldn't appear as an open stop on the rider's map. */
 export function getRidersWithPlans(date: string, companyId: number): Array<{ rider: Rider; orders: Order[]; totalDistanceMeters: number }> {
   const db = getDb();
   const riders = getActiveRiders();
   const result: Array<{ rider: Rider; orders: Order[]; totalDistanceMeters: number }> = [];
   for (const rider of riders) {
-    const orders = getRiderPlanOrders(rider.id, date, companyId);
+    const orders = getRiderPlanOrders(rider.id, date, companyId).filter(
+      (o) => !["delivered", "cancelled", "returned", "pending-approval"].includes(o.status),
+    );
     if (orders.length === 0) continue;
     // Total distance is the sum of haversine distances from shop → first stop → ... → last stop.
     let total = 0;
