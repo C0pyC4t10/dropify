@@ -54,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const stored = readStored();
     if (stored) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setState({ status: "authed", accessToken: stored.accessToken, session: stored.session });
     } else {
       setState({ status: "guest", accessToken: null, session: null });
@@ -106,8 +107,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState({ status: "authed", accessToken: token, session });
   }, [persist]);
 
-  // Listen for the rider:auth-lost event from rider-api (401/403 responses).
-  // Soft-redirect to login instead of full reload so in-flight flows keep state.
+  // Listen for the rider:auth-lost event from rider-api. This now fires
+  // only when both the silent refresh AND the retry-with-new-token fail
+  // — see rider-api.ts. Soft-redirect to login instead of full reload so
+  // an in-flight flow doesn't lose its scroll position or photo capture.
   useEffect(() => {
     function onAuthLost() {
       try { localStorage.removeItem(STORAGE_KEY); } catch {}
@@ -117,6 +120,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.addEventListener("rider:auth-lost", onAuthLost);
     return () => window.removeEventListener("rider:auth-lost", onAuthLost);
   }, [router]);
+
+  // Pick up silently-refreshed access tokens dispatched by rider-api. The
+  // refresh rotates the httpOnly cookie server-side, so we only need to
+  // swap the accessToken into React state + localStorage.
+  useEffect(() => {
+    function onTokenRefreshed(e: Event) {
+      const detail = (e as CustomEvent<{ accessToken: string }>).detail;
+      if (!detail?.accessToken) return;
+      setState((prev) => {
+        if (!prev.session) return prev;
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ accessToken: detail.accessToken, session: prev.session })); } catch {}
+        return { ...prev, accessToken: detail.accessToken };
+      });
+    }
+    window.addEventListener("rider:token-refreshed", onTokenRefreshed);
+    return () => window.removeEventListener("rider:token-refreshed", onTokenRefreshed);
+  }, []);
+
+  // Proactive background refresh: fire /api/rider/refresh every 10 min
+  // while the rider is signed in. The access token TTL is 15 min, so
+  // 10 min gives us a comfortable buffer before the token would expire
+  // mid-request. The rider never sees this happen.
+  useEffect(() => {
+    if (state.status !== "authed") return;
+    const REFRESH_MS = 10 * 60 * 1000;
+    const tick = () => {
+      fetch("/api/rider/refresh", { method: "POST", credentials: "same-origin" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((json) => {
+          if (json?.accessToken && typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("rider:token-refreshed", { detail: { accessToken: json.accessToken } }),
+            );
+          }
+        })
+        .catch(() => {
+          /* network blip — next 401 will retry via the auto-refresh path */
+        });
+    };
+    const handle = setInterval(tick, REFRESH_MS);
+    return () => clearInterval(handle);
+  }, [state.status]);
 
   return (
     <AuthContext.Provider value={{ ...state, login, logout, setAccessToken }}>
