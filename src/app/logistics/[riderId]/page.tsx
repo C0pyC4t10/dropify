@@ -71,6 +71,9 @@ export default function RiderPlanPage({
   // Local working copy of the plan sequence (orderIds). User can drag to reorder.
   const [workingSequence, setWorkingSequence] = useState<number[]>([]);
   const [seededFromQuery, setSeededFromQuery] = useState(false);
+  // Count of planned stops that haven't been sequenced yet (riderSeq=null).
+  // Shown as a hint until the operator clicks Save or Optimize.
+  const [unsequencedCount, setUnsequencedCount] = useState(0);
   // Map of orderId → live leg from latest optimization (for distance/ETA in the side list).
   const [legs, setLegs] = useState<Map<number, { distanceMeters: number; estSeconds: number }>>(
     new Map(),
@@ -113,10 +116,21 @@ export default function RiderPlanPage({
       setShop(plan.shop);
       setPlanned(plan.orders);
       setUnassigned((unassignedRes.orders as Order[]) ?? []);
-      const existingSequence = (plan.orders as Order[])
+      const sequenced = (plan.orders as Order[])
         .filter((o) => o.riderSeq != null)
         .sort((a, b) => (a.riderSeq ?? 0) - (b.riderSeq ?? 0))
         .map((o) => o.id);
+      // Orders assigned to this rider today but not yet placed in the plan
+      // (riderSeq=null) — i.e. the dispatcher used the order-page dropdown
+      // to give this rider the delivery, then jumped straight here expecting
+      // the route map. Show them too, appended to the end, but mark them as
+      // unsequenced so the UI can hint "Save or Optimize to schedule".
+      const unsequenced = (plan.orders as Order[])
+        .filter((o) => o.riderSeq == null)
+        .sort((a, b) => a.id - b.id)
+        .map((o) => o.id);
+      const existingSequence = [...sequenced, ...unsequenced];
+      setUnsequencedCount(unsequenced.length);
       setSelectedUnassigned(new Set());
       setMessage(null);
 
@@ -238,6 +252,7 @@ export default function RiderPlanPage({
       const data: OptimizeResponse = await res.json();
       if (!res.ok) throw new Error((data as { error?: string }).error ?? "Optimize failed");
       setWorkingSequence(data.sequence);
+      setUnsequencedCount(0);
       setMessage({ kind: "ok", text: `Optimized: ${distanceLabel(data.totalDistanceMeters)}, ETA ${etaLabel(data.totalEstSeconds)}` });
     } catch (e) {
       setMessage({ kind: "err", text: String(e) });
@@ -256,6 +271,7 @@ export default function RiderPlanPage({
       const data: OptimizeResponse = await res.json();
       if (!res.ok) throw new Error((data as { error?: string }).error ?? "Save failed");
       setMessage({ kind: "ok", text: `Saved ${data.updated} stops` });
+      setUnsequencedCount(0);
       await load();
     } catch (e) {
       setMessage({ kind: "err", text: String(e) });
@@ -375,6 +391,27 @@ export default function RiderPlanPage({
         </div>
       )}
 
+      {unsequencedCount > 0 && (
+        <div
+          style={{
+            padding: "8px 12px",
+            borderRadius: 6,
+            marginBottom: 12,
+            background: "var(--tint-warning-12)",
+            color: "var(--color-warning)",
+            border: "1px solid var(--color-warning)",
+            fontSize: 13,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+          role="status"
+        >
+          <strong>{unsequencedCount}</strong> stop{unsequencedCount !== 1 ? "s" : ""} assigned to this rider but not yet in the route. Click{" "}
+          <strong>Save</strong> or <strong>Optimize</strong> to schedule them.
+        </div>
+      )}
+
       {/* Two-column layout: side lists + map */}
       <div
         style={{
@@ -433,6 +470,7 @@ export default function RiderPlanPage({
                     const o = allOrders.get(id);
                     if (!o) return null;
                     const leg = legs.get(id);
+                    const unsequenced = o.riderSeq == null;
                     return (
                       <div
                         key={id}
@@ -447,7 +485,7 @@ export default function RiderPlanPage({
                           gap: 8,
                           padding: "6px 8px",
                           background: dragOverId === id ? "var(--tint-brand-12)" : "var(--bg-elevated, #1a1a1a)",
-                          border: "1px solid var(--border)",
+                          border: `1px ${unsequenced ? "dashed" : "solid"} var(${unsequenced ? "--color-warning" : "--border"})`,
                           borderRadius: 6,
                           cursor: "grab",
                           opacity: draggingId === id ? 0.4 : 1,
@@ -459,8 +497,9 @@ export default function RiderPlanPage({
                             width: 24,
                             height: 24,
                             borderRadius: 12,
-                            background: "var(--accent-green)",
-                            color: "#fff",
+                            background: unsequenced ? "var(--bg-elevated, #1a1a1a)" : "var(--accent-green)",
+                            color: unsequenced ? "var(--color-warning)" : "#fff",
+                            border: `1px ${unsequenced ? "solid" : "none"} var(--color-warning)`,
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
@@ -468,8 +507,9 @@ export default function RiderPlanPage({
                             fontWeight: 800,
                             flexShrink: 0,
                           }}
+                          title={unsequenced ? "Not yet in route — Save to schedule" : `Stop ${idx + 1}`}
                         >
-                          {idx + 1}
+                          {unsequenced ? "·" : idx + 1}
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
