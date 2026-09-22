@@ -4113,16 +4113,30 @@ export function getRiderAssignedOrdersAcrossTenants(
   return rows.map(rowToOrder);
 }
 
-/** Lifetime aggregation for a rider: total deliveries, total COD collected,
- *  total rider payout, days worked, and a per-month breakdown for the last
- *  12 months. Aggregates over every tenant the rider is shared across, so
- *  the rider's number is the same number the dispatcher sees on every board. */
+/** Lifetime aggregation for a rider: total deliveries, total COD
+ *  collected, total COD still owed (returned/cancelled but collected
+ *  partially), total rider payout, days worked, and a per-month
+ *  breakdown for the last 12 months. Aggregates over every tenant
+ *  the rider is shared across, so the rider's number is the same
+ *  number the dispatcher sees on every board. */
 export interface RiderLifetimeStats {
   /** Day they first delivered (or null if never delivered). */
   firstDelivery: string | null;
   totalDelivered: number;
   totalFailed: number;
+  /** Total cash the rider actually took from customers across all
+   *  delivered COD orders. This is `SUM(paid)` for delivered COD
+   *  orders, NOT `total - paid` (the latter is what the rider still
+   *  owes, which is 0 when the operator marks a COD order delivered
+   *  with paid = total). The previous formula made delivered-only
+   *  riders show "৳0 collected" in their history view even though
+   *  they had clearly collected thousands. */
   totalCodCollected: number;
+  /** Total cash the rider still owes from COD orders that were
+   *  cancelled or returned (customer paid partial, didn't pay, or
+   *  the rider never collected). Computed as MAX(0, total - paid)
+   *  across failed/cancelled orders. */
+  totalCodOwed: number;
   totalPayout: number;
   /** Distinct calendar days the rider closed at least one delivery. */
   daysWorked: number;
@@ -4144,7 +4158,9 @@ export function getRiderLifetimeStats(riderId: number): RiderLifetimeStats {
          SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) AS totalDelivered,
          SUM(CASE WHEN status IN ('cancelled', 'returned') THEN 1 ELSE 0 END) AS totalFailed,
          SUM(CASE WHEN status = 'delivered' AND paymentMethod = 'cod'
-                  THEN MAX(0, total - COALESCE(paid, 0)) ELSE 0 END) AS totalCod,
+                  THEN COALESCE(paid, 0) ELSE 0 END) AS totalCodCollected,
+         SUM(CASE WHEN status IN ('cancelled', 'returned') AND paymentMethod = 'cod'
+                  THEN MAX(0, total - COALESCE(paid, 0)) ELSE 0 END) AS totalCodOwed,
          SUM(CASE WHEN status = 'delivered' THEN COALESCE(riderCost, 0) ELSE 0 END) AS totalPayout,
          MIN(CASE WHEN status = 'delivered' THEN date END) AS firstDelivery,
          COUNT(DISTINCT CASE WHEN status = 'delivered' THEN date END) AS daysWorked
@@ -4155,7 +4171,8 @@ export function getRiderLifetimeStats(riderId: number): RiderLifetimeStats {
     | {
         totalDelivered: number | null;
         totalFailed: number | null;
-        totalCod: number | null;
+        totalCodCollected: number | null;
+        totalCodOwed: number | null;
         totalPayout: number | null;
         firstDelivery: string | null;
         daysWorked: number | null;
@@ -4205,7 +4222,7 @@ export function getRiderLifetimeStats(riderId: number): RiderLifetimeStats {
     if (row.status === "delivered") {
       bucket.delivered += 1;
       if (row.paymentMethod === "cod") {
-        bucket.cod += Math.max(0, row.total - (row.paid ?? 0));
+        bucket.cod += row.paid ?? 0;
       }
       bucket.payout += row.riderCost ?? 0;
     } else if (row.status === "cancelled" || row.status === "returned") {
@@ -4217,7 +4234,8 @@ export function getRiderLifetimeStats(riderId: number): RiderLifetimeStats {
     firstDelivery: overall?.firstDelivery ?? null,
     totalDelivered: overall?.totalDelivered ?? 0,
     totalFailed: overall?.totalFailed ?? 0,
-    totalCodCollected: Math.round((overall?.totalCod ?? 0) * 100) / 100,
+    totalCodCollected: Math.round((overall?.totalCodCollected ?? 0) * 100) / 100,
+    totalCodOwed: Math.round((overall?.totalCodOwed ?? 0) * 100) / 100,
     totalPayout: Math.round((overall?.totalPayout ?? 0) * 100) / 100,
     daysWorked: overall?.daysWorked ?? 0,
     monthly: months,
