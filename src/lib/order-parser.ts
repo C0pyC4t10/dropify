@@ -112,6 +112,27 @@ const labelRe = /^(?:phone|phone\s*no\.?|মোবাইল|মোবাইল\s
 /** A line that is just a quantity with a unit (no price). "3KG", "1 kg", "5 পিস". */
 const QTY_ONLY_RE = /^\s*\d+(?:\.\d+)?\s*(kg|কেজি|pcs|pc|পিস|piece|pieces|টুকরা)\s*$/i;
 
+/**
+ * Convert a string of Bangla-digit characters to ASCII digits so
+ * JavaScript's Number() can parse it. Operator paste rows commonly
+ * use ০-৯ (U+09E6-U+09EF) as numerals; Number("১") returns NaN.
+ * Mapping: ০→0, ১→1, ..., ৯→9. Anything outside that range is
+ * preserved as-is (including commas, dots, ASCII digits).
+ */
+function toLatinNumber(s: string): number {
+  let out = "";
+  for (const ch of s) {
+    const code = ch.charCodeAt(0);
+    // Map ০ (U+09E6) .. ৯ (U+09EF) to 0..9.
+    if (code >= 0x09e6 && code <= 0x09ef) {
+      out += String.fromCharCode(code - 0x09e6 + 0x30);
+    } else {
+      out += ch;
+    }
+  }
+  return Number(out.replace(/,/g, ""));
+}
+
 function looksLikeQtyTimesPriceLine(ln: string): { qty: number; lineTotal: number; unit: "kg" | "pcs" } | null {
   // Accepts commas, tabs, spaces, "x" or "×" as qty↔price separators.
   let m = ln.match(/^\s*(\d+(?:\.\d+)?)\s*(?:kg|pcs|pc|piece|pieces|কেজি|পিস|টুকরা|কেজি\s*[\d]*)?\s*[,\t ×x]+\s*([\d,]+(?:\.\d+)?)\s*(?:৳|taka|tk|bdt|টাকা)?\s*$/i);
@@ -120,6 +141,33 @@ function looksLikeQtyTimesPriceLine(ln: string): { qty: number; lineTotal: numbe
     if (m && /৳|taka|tk|bdt|টাকা/i.test(ln)) {
       const total = Number(m[1].replace(/,/g, ""));
       if (Number.isFinite(total) && total > 0) return { qty: 1, lineTotal: total, unit: "kg" };
+    }
+    // Pattern B (added): mid-line qty×price where a name sits in front of
+    // the qty. Real paste rows from WooCommerce admin copy look like
+    // "Package: 3KG  11,350.00  ৳" or "name — ১ কেজি  2900.00 ৳".
+    // We anchor on the trailing "qty unit? price" trio. Prefix can be
+    // anything non-digit (ASCII or Bangla). The first number is
+    // capped at 9999 so we don't accidentally match a phone digit.
+    // Inner char class writes Bangla digits FIRST because
+    // [^\d০-৹]+(\d...) misbehaves on Bangla-numerated tails in V8;
+    // [০-৯\d] matches ASCII + Bangla in both directions.
+    // toLatinNumber() converts Bangla-numerals so Number() doesn't
+    // return NaN on them. (Bangla-numerated rows are common — they
+    // come from Facebook DMs and WhatsApp.)
+    m = ln.match(/^[^\d০-৹]*?([০-৯\d]{1,4}(?:[.,][০-৯\d]+)?)\s*(kg|কেজি|pcs|pc|piece|pieces)?\s*([\d,]+(?:\.\d+)?)\s*(?:৳|taka|tk|টাকা)\s*$/i);
+    if (m) {
+      // Group indices in this regex:
+      //   m[1] = qty, m[2] = unit (optional), m[3] = price.
+      const qty = toLatinNumber(m[1]);
+      const total = toLatinNumber(m[3]); // toLatinNumber also strips commas
+      if (
+        Number.isFinite(qty) && qty > 0 && qty <= 9999 &&
+        Number.isFinite(total) && total > 0
+      ) {
+        let unit: "kg" | "pcs" = "kg";
+        if (m[2] && /pcs|pc|পিস|piece/i.test(m[2])) unit = "pcs";
+        return { qty, lineTotal: total, unit };
+      }
     }
     return null;
   }
@@ -307,14 +355,40 @@ function findNameAbove(lines: string[], atLine: number): string {
   for (let j = atLine - 1; j >= 0; j--) {
     const prev = lines[j];
     if (!prev) continue;
-    if (labelRe.test(prev)) continue;
-    if (looksLikeQtyTimesPriceLine(prev)) continue;
-    if (looksLikePriceLine(prev) && /^\d/.test(prev)) continue;
-    if (QTY_ONLY_RE.test(prev)) continue;
-    if (isShortCodeLine(prev)) continue;
+    // Walk-back noise filters. If the previous line is any of these
+    // shapes, it's not a real product name — keep looking up the stack.
+    if (labelRe.test(prev)) continue;                              // "Phone", "Product", ...
+    if (looksLikeQtyTimesPriceLine(prev)) continue;               // another item row
+    if (looksLikePriceLine(prev) && /^\d/.test(prev)) continue;   // lone "৳1500.00"
+    if (QTY_ONLY_RE.test(prev)) continue;                          // "3KG"
+    if (isShortCodeLine(prev)) continue;                           // "M10k"
+    if (looksLikePhoneOnly(prev)) continue;                        // "01712345678"
     return prev;
   }
   return "";
+}
+
+/**
+ * For qty×price lines that also embed the product name on the SAME row
+ * (WooCommerce "name — qty unit price ৳" variants), pull the chunk
+ * before the qty number as a candidate name. Discard pure-label prefixes
+ * ("Package:", "Ship to:", "Weight:", ...) and reject ASCII-only
+ * prefixes shorter than 8 chars (otherwise Bangla "দ" matches on its
+ * own and the operator gets "দ" as the "name").
+ */
+function extractNameFromQtyLine(ln: string): string {
+  // Everything before the first digit chunk that starts the qty region.
+  const m = ln.match(/^([^\d০-৹]*?)[\d০-৹]/);
+  if (!m) return "";
+  const prefix = (m[1] || "").trim().replace(/[,:\.\-—–]+$/, "").trim();
+  if (prefix.length === 0) return "";
+  if (/^(?:package|ship\s*to|bill\s*to|qty|quantity|weight|item|sku|order\s*#|product)\s*[:\-—–]?\s*$/i.test(prefix)) {
+    return "";
+  }
+  // Require non-trivial product-name content. Bangla "দ" with no
+  // neighbours is too short to be a useful product name on its own.
+  if (!/[^\x00-\x7F]/.test(prefix) && prefix.length < 8) return "";
+  return prefix;
 }
 
 /**
@@ -410,7 +484,16 @@ function parseItems(text: string): RawParsedItem[] {
     }
 
     // Plain qtyprice with no preceding qtyOnly.
-    const name = findNameAbove(lines, it.atLine);
+    // For a Pattern B match (mid-line qty×price), the same line has the
+    // product name embedded — prefer that over walking up through the
+    // phone/label/address lines that surround the item. For Pattern A
+    // matches (e.g. "1 kg 2900 ৳" with no name on the line), walk up.
+    const sameLineName = extractNameFromQtyLine(lines[it.atLine]);
+    const aboveName = findNameAbove(lines, it.atLine);
+    // Prefer the embedded name — it's almost always more accurate than
+    // a guess from the line above (which is often a phone, label, or
+    // address that looks nothing like a product name).
+    const name = sameLineName || aboveName;
     const unitPrice = Math.round((it.lineTotal / it.qty) * 100) / 100;
     result.push({
       qty: it.qty,
