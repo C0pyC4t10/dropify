@@ -24,7 +24,19 @@ interface OrderSummary {
 
 interface TodayResponse {
   date: string;
-  summary: { total: number; pending: number; delivered: number; failed: number; codExpected: number };
+  summary: {
+    total: number;
+    pending: number;
+    delivered: number;
+    failed: number;
+    /** Cash the rider actually collected from COD customers today. */
+    codCollected: number;
+    /** Full COD face value assigned today (collected + still-pending). */
+    codExpected: number;
+    /** Total ticket value of orders the rider couldn't deliver
+     *  (cancelled / returned). */
+    failedAmount: number;
+  };
   orders: OrderSummary[];
 }
 
@@ -170,8 +182,12 @@ export default function RiderHistoryPage() {
           marginBottom: 16,
         }}>
           <DayStat label="Delivered" value={data.summary.delivered} accent="var(--color-success)" />
-          <DayStat label="Failed" value={data.summary.failed} accent="var(--color-danger)" />
-          <DayStat label="COD" value={`৳${data.summary.codExpected.toLocaleString()}`} accent="var(--color-warning)" small />
+          <DayStat
+            label={data.summary.failedAmount > 0 ? `Failed (৳${data.summary.failedAmount.toLocaleString()})` : "Failed"}
+            value={data.summary.failed}
+            accent="var(--color-danger)"
+          />
+          <DayStat label="COD collected" value={`৳${data.summary.codCollected.toLocaleString()}`} accent="var(--color-warning)" small />
         </div>
       )}
 

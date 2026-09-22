@@ -44,7 +44,21 @@ interface OrderSummary {
 
 interface TodayResponse {
   date: string;
-  summary: { total: number; pending: number; delivered: number; failed: number; codExpected: number };
+  summary: {
+    total: number;
+    pending: number;
+    delivered: number;
+    failed: number;
+    /** Cash the rider actually collected from COD customers today. */
+    codCollected: number;
+    /** Full COD face value assigned to the rider today (collected +
+     *  still-pending). Kept for the orders-page COD counter where the
+     *  gross face value matters more than the net collected. */
+    codExpected: number;
+    /** Total ticket value of orders the rider couldn't deliver
+     *  (cancelled / returned). Displayed next to the failed count. */
+    failedAmount: number;
+  };
   orders: OrderSummary[];
 }
 
@@ -175,7 +189,12 @@ function SummaryStrip({ summary }: { summary: TodayResponse["summary"] }) {
       <Tile label="Total" value={summary.total} accent="var(--color-text)" />
       <Tile label="Pending" value={summary.pending} accent="var(--color-info)" />
       <Tile label="Delivered" value={summary.delivered} accent="var(--color-success)" />
-      <Tile label="COD" value={`৳${summary.codExpected.toLocaleString()}`} accent="var(--color-warning)" small />
+      <Tile
+        label="COD collected"
+        value={`৳${summary.codCollected.toLocaleString()}`}
+        accent="var(--color-warning)"
+        small
+      />
     </div>
   );
 }

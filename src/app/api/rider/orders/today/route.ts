@@ -28,13 +28,40 @@ export async function GET(request: NextRequest) {
   const summary = orders.reduce(
     (acc, o) => {
       acc.total += 1;
-      if (o.status === "delivered") acc.delivered += 1;
-      else if (o.status === "cancelled" || o.status === "returned") acc.failed += 1;
-      else acc.pending += 1;
-      if (o.paymentMethod === "cod") acc.codExpected += o.total;
+      if (o.status === "delivered") {
+        acc.delivered += 1;
+        // Cash the rider actually took from customers on delivered COD
+        // orders today — used to populate the day's "COD" stat in the
+        // rider history view. Was previously `codExpected = total` which
+        // conflated "amount collected" with "amount owed" and read as
+        // ৳0 on every day after the operator settled delivered orders.
+        if (o.paymentMethod === "cod") acc.codCollected += o.paid ?? 0;
+        if (o.paymentMethod === "cod") acc.codExpected += o.total;
+      } else if (o.status === "cancelled" || o.status === "returned") {
+        acc.failed += 1;
+        // Total ticket value of orders the rider couldn't deliver —
+        // visible in the day's "Failed" stat so the rider sees the cash
+        // exposure from cancellations / returns, not just a count.
+        acc.failedAmount += o.total;
+      } else {
+        acc.pending += 1;
+        if (o.paymentMethod === "cod") acc.codExpected += o.total;
+      }
       return acc;
     },
-    { total: 0, pending: 0, delivered: 0, failed: 0, codExpected: 0 }
+    {
+      total: 0,
+      pending: 0,
+      delivered: 0,
+      failed: 0,
+      // What the rider actually collected today from COD customers.
+      codCollected: 0,
+      // The full COD face value assigned to the rider today (delivered
+      // collected + still-pending). Kept for the orders-page COD
+      // counter where the operator wants the gross face value.
+      codExpected: 0,
+      failedAmount: 0,
+    },
   );
 
   return NextResponse.json({
