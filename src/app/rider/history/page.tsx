@@ -230,7 +230,11 @@ export default function RiderHistoryPage() {
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 12, color: "var(--color-text-secondary)" }}>
                 <span>{o.orderNo}</span>
                 <span style={{ fontWeight: 700 }}>
-                  {o.paymentMethod === "cod" ? `৳${o.codDue.toLocaleString()} COD` : `৳${o.total.toLocaleString()}`}
+                  {o.paymentMethod === "cod"
+                    ? (o.codDue > 0
+                        ? `৳${o.total.toLocaleString()} (৳${o.codDue.toLocaleString()} due)`
+                        : `৳${o.total.toLocaleString()}`)
+                    : `৳${o.total.toLocaleString()}`}
                 </span>
               </div>
             </button>
