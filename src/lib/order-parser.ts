@@ -484,15 +484,13 @@ function parseItems(text: string): RawParsedItem[] {
     }
 
     // Plain qtyprice with no preceding qtyOnly.
-    // For a Pattern B match (mid-line qty×price), the same line has the
-    // product name embedded — prefer that over walking up through the
-    // phone/label/address lines that surround the item. For Pattern A
-    // matches (e.g. "1 kg 2900 ৳" with no name on the line), walk up.
-    const sameLineName = extractNameFromQtyLine(lines[it.atLine]);
     const aboveName = findNameAbove(lines, it.atLine);
-    // Prefer the embedded name — it's almost always more accurate than
-    // a guess from the line above (which is often a phone, label, or
-    // address that looks nothing like a product name).
+    const sameLineName = extractNameFromQtyLine(lines[it.atLine]);
+    // For Pattern B matches (where the name sits on the same line as
+    // the qty×price), prefer the embedded name — walking up often hits
+    // a phone, label, or address that has nothing to do with the
+    // product name. Fall back to the above-name lookup for Pattern A
+    // matches that don't have an embedded name ("1 kg 2900 ৳").
     const name = sameLineName || aboveName;
     const unitPrice = Math.round((it.lineTotal / it.qty) * 100) / 100;
     result.push({
@@ -529,10 +527,17 @@ function matchProduct(
 ): ParseInput["products"][number] | null {
   if (!hint || hint.length < 2) return null;
 
-  // Strip tails like "— ১ কেজি" or "(1 kg)".
+  // Strip noise tails from the hint before matching:
+  //   - " — ১ কেজি" / "- 1kg" style quantity tails after the dash
+  //   - "(1 kg)" / "(3 pcs)" style parenthesised quantities only when
+  //     the contents look like a quantity+unit. We DO NOT strip other
+  //     parenthesised content — for the meat tenant "দেশি গরুর
+  //     ফুসফুস (ফেফসা)" is the actual product name, and a strip-everything
+  //     regex would shorten the hint below the catalog row's length and
+  //     the substring match would fail.
   const cleaned = hint
     .replace(/[—–-]\s*[\d০-৯]+\s*(kg|pcs|pc|কেজি|পিস).*$/i, "")
-    .replace(/\s+\(.+?\)\s*$/, "")
+    .replace(/\s+\(\s*\d+(?:[.,]\d+)?\s*(?:kg|কেজি|pcs|পিস|pc|piece|pieces)?\s*\)\s*$/i, "")
     .trim();
   const normHint = cleaned.replace(/\s+/g, " ").toLowerCase();
   if (normHint.length < 2) return null;
