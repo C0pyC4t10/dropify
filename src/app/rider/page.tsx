@@ -18,6 +18,13 @@ export default function RiderIndexPage() {
     } catch {
       router.replace("/rider/login");
     }
+    // Safety net: if the redirect never fires (broken hydration, blocked
+    // JS chunk, stuck SW), push the rider to the login screen anyway
+    // so they're not staring at "Loading…" forever.
+    const t = window.setTimeout(() => {
+      router.replace("/rider/login");
+    }, 2500);
+    return () => window.clearTimeout(t);
   }, [router]);
   return <main style={{ padding: 24 }}>Loading…</main>;
 }

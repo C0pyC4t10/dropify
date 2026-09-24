@@ -61,6 +61,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Safety net: if the effect above never runs (broken hydration, blocked
+  // JS chunk, stuck service worker, hung phone browser), the rider is left
+  // staring at "Loading…" forever with no way out. Force the state to
+  // guest after 2.5s so they at least land on the PIN screen.
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      setState((prev) =>
+        prev.status === "loading"
+          ? { status: "guest", accessToken: null, session: null }
+          : prev
+      );
+    }, 2500);
+    return () => window.clearTimeout(t);
+  }, []);
+
   const persist = useCallback((accessToken: string, session: RiderSession) => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ accessToken, session })); } catch {}
   }, []);

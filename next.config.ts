@@ -63,7 +63,12 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "5mb",
     },
   },
-  allowedDevOrigins: ["192.168.68.58", "localhost", "127.0.0.1"],
+  allowedDevOrigins: [
+    "192.168.68.58",
+    "192.168.68.60",
+    "localhost",
+    "127.0.0.1",
+  ],
   redirects: () => [
     ...LOGISTICS_REDIRECTS,
     ...INVENTORY_REDIRECTS,
